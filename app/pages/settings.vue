@@ -23,6 +23,22 @@
         </div>
       </UCard>
 
+      <!-- 上传设置 -->
+      <UCard>
+        <template #header><h2 class="font-semibold">{{ $t('app.uploadSettings') }}</h2></template>
+        <div class="space-y-3 text-sm">
+          <div>
+            <label class="text-gray-500 block mb-1">{{ $t('app.chunkSize') }}</label>
+            <USelect
+              v-model="chunkSize"
+              :items="chunkOptions"
+              class="w-full"
+            />
+            <p class="text-xs text-gray-400 mt-1">{{ $t('app.chunkSizeHint') }}</p>
+          </div>
+        </div>
+      </UCard>
+
       <!-- 语言 -->
       <UCard>
         <template #header><h2 class="font-semibold">Language / 言語</h2></template>
@@ -53,6 +69,23 @@ definePageMeta({ middleware: 'auth' })
 const { user } = useAuth()
 const { locale, locales, setLocale } = useI18n()
 const currentLocale = computed(() => locale.value)
+
+// Upload settings
+const chunkOptions = [
+  { label: '5 MB', value: 5 * 1024 * 1024 },
+  { label: '10 MB', value: 10 * 1024 * 1024 },
+  { label: '20 MB', value: 20 * 1024 * 1024 },
+  { label: '50 MB', value: 50 * 1024 * 1024 },
+  { label: '100 MB', value: 100 * 1024 * 1024 },
+]
+const chunkSize = ref(chunkOptions[1].value) // default 10MB
+onMounted(() => {
+  const saved = localStorage.getItem('upload_chunk_size')
+  if (saved) chunkSize.value = parseInt(saved)
+})
+watch(chunkSize, (val) => {
+  localStorage.setItem('upload_chunk_size', String(val))
+})
 
 async function switchLocale(code: string) {
   await setLocale(code)

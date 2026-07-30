@@ -1,11 +1,40 @@
-// GET /api/files/:id/download — 下载文件内容（供预览使用）
+// GET /api/files/:id/download — 代理 R2 文件内容，供预览使用
+import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
+
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
 
-  // TODO: 从 D1 查询 object_key → 生成 R2 Signed URL → 302 redirect
-  // const signedUrl = await getR2SignedUrl(objectKey)
-  // return sendRedirect(event, signedUrl)
+  const { db } = await import('@nuxthub/db')
+  const { files } = await import('../../../database/schema')
+  const { eq } = await import('drizzle-orm')
 
-  // 开发阶段：返回 501
-  throw createError({ statusCode: 501, message: '待实现：R2 Signed URL' })
+  const row = await db.select().from(files).where(eq(files.id, id)).limit(1).then(r => r[0])
+  if (!row) throw createError({ statusCode: 404, message: '文件不存在' })
+
+  const s3 = new S3Client({
+    region: 'auto',
+    endpoint: `https://${process.env.NUXT_HUB_CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.NUXT_R2_ACCESS_KEY_ID || '',
+      secretAccessKey: process.env.NUXT_R2_SECRET_ACCESS_KEY || '',
+    },
+  })
+
+  const cmd = new GetObjectCommand({ Bucket: 'clouddrive-files', Key: row.objectKey })
+  const obj = await s3.send(cmd)
+
+  const body = await obj.Body?.transformToByteArray()
+  if (!body) throw createError({ statusCode: 500, message: '无法读取文件内容' })
+
+  setResponseHeader(event, 'Content-Type', row.contentType)
+  setResponseHeader(event, 'Content-Disposition', `inline; filename="${encodeURIComponent(row.filename)}"`)
+  setResponseHeader(event, 'Access-Control-Allow-Origin', '*')
+  setResponseHeader(event, 'Access-Control-Allow-Methods', 'GET, OPTIONS')
+  return new Response(body, {
+    headers: {
+      'Content-Type': row.contentType,
+      'Content-Disposition': `inline; filename="${encodeURIComponent(row.filename)}"`,
+      'Access-Control-Allow-Origin': '*',
+    },
+  })
 })

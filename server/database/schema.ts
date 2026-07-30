@@ -24,3 +24,18 @@ export const files = sqliteTable('files', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
+
+// 回收站
+export const trash = sqliteTable('trash', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  fileId: text('file_id'),
+  folderId: text('folder_id'),
+  name: text('name').notNull(),
+  originalPath: text('original_path').notNull(),
+  size: integer('size').notNull().default(0),
+  deletedAt: integer('deleted_at', { mode: 'timestamp' }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  isFolder: integer('is_folder', { mode: 'boolean' }).notNull().default(false),
+  objectKey: text('object_key'),
+})
