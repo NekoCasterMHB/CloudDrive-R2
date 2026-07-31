@@ -10,6 +10,8 @@ export interface UploadTask {
   type: 'upload' | 'download'
   status: 'pending' | 'uploading' | 'done' | 'error' | 'paused' | 'cancelled'
   progress: number
+  sessionId?: string // R2 Multipart Upload 会话（断点续传）
+  uploadedBytes?: number
   error?: string
 }
 
@@ -24,44 +26,12 @@ export interface StoredTask {
   time: number
 }
 
-const DEMO_HISTORY: StoredTask[] = [
-  { id: 'demo-img', fileName: 'vacation-photo.jpg', fileSize: 5242880, folderId: null, type: 'upload', status: 'done', time: Date.now() - 60000 },
-  { id: 'demo-vid', fileName: 'movie-trailer.mp4', fileSize: 524288000, folderId: null, type: 'upload', status: 'done', time: Date.now() - 90000 },
-  { id: 'demo-audio', fileName: 'song.mp3', fileSize: 10485760, folderId: null, type: 'download', status: 'done', time: Date.now() - 120000 },
-  { id: 'demo-archive', fileName: 'backup.zip', fileSize: 1073741824, folderId: null, type: 'upload', status: 'done', time: Date.now() - 180000 },
-  { id: 'demo-pdf', fileName: 'report.pdf', fileSize: 2097152, folderId: null, type: 'download', status: 'done', time: Date.now() - 240000 },
-  { id: 'demo-xls', fileName: 'data.xlsx', fileSize: 512000, folderId: null, type: 'upload', status: 'done', time: Date.now() - 300000 },
-  { id: 'demo-ppt', fileName: 'slides.pptx', fileSize: 8192000, folderId: null, type: 'download', status: 'done', time: Date.now() - 360000 },
-  { id: 'demo-code', fileName: 'app.ts', fileSize: 10240, folderId: null, type: 'upload', status: 'done', time: Date.now() - 420000 },
-  { id: 'demo-exe', fileName: 'installer.exe', fileSize: 73400320, folderId: null, type: 'download', status: 'done', time: Date.now() - 480000 },
-  { id: 'demo-font', fileName: 'Inter.ttf', fileSize: 262144, folderId: null, type: 'upload', status: 'done', time: Date.now() - 540000 },
-  { id: 'demo-cad', fileName: 'model.stl', fileSize: 15728640, folderId: null, type: 'download', status: 'done', time: Date.now() - 600000 },
-  { id: 'demo-db', fileName: 'users.sqlite', fileSize: 1048576, folderId: null, type: 'upload', status: 'done', time: Date.now() - 660000 },
-  { id: 'demo-txt', fileName: 'notes.txt', fileSize: 5120, folderId: null, type: 'upload', status: 'cancelled', time: Date.now() - 720000 },
-  { id: 'demo-paused', fileName: 'large-video.mkv', fileSize: 4294967296, folderId: null, type: 'download', status: 'done', time: Date.now() - 780000 },
-]
-
-let _demoSeeded = false
-
-export function useUploader(onDone?: () => void, onNotify?: (msg: { title: string; color?: string; icon?: string }) => void) {
+export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { title: string; color?: string; icon?: string }) => void) {
   const tasks = ref<UploadTask[]>([])
   const history = ref<StoredTask[]>(loadHistory())
   const maxConcurrent = 2
-
-  // Seed demo active tasks (only once, module-level singleton)
-  if (!_demoSeeded) {
-    _demoSeeded = true
-    tasks.value.push(
-      { id: 'demo-up', file: new File([], 'backup-2025.tar.gz'), folderId: null, type: 'upload', status: 'uploading', progress: 45.67 },
-      { id: 'demo-dl', file: new File([], 'movie-clip.mp4'), folderId: null, type: 'download', status: 'uploading', progress: 72.31 },
-    )
-    const timer = setInterval(() => {
-      for (const t of tasks.value) {
-        if (t.status === 'uploading' && t.progress < 95) t.progress = Math.round((t.progress + Math.random() * 3) * 100) / 100
-      }
-    }, 1000)
-    try { window.addEventListener('beforeunload', () => clearInterval(timer)) } catch {}
-  }
+  // 任务级 AbortController（暂停/取消）
+  const taskControllers = new Map<string, AbortController>()
 
   function loadHistory(): StoredTask[] {
     let items: StoredTask[] = []
@@ -72,20 +42,12 @@ export function useUploader(onDone?: () => void, onNotify?: (msg: { title: strin
       }
     }
     catch {}
-    // Always prepend demo data at the front
-    return [...DEMO_HISTORY, ...items]
+    return items
   }
 
   function saveHistory() {
     if (typeof localStorage === 'undefined') return
     localStorage.setItem('upload_history', JSON.stringify(history.value.slice(0, 100)))
-  }
-
-  /** 获取分片大小设置 (bytes) */
-  function getChunkSize(): number {
-    if (typeof localStorage === 'undefined') return 10 * 1024 * 1024
-    const val = localStorage.getItem('upload_chunk_size')
-    return val ? parseInt(val) : 10 * 1024 * 1024
   }
 
   /** 添加文件到上传队列 */
@@ -103,61 +65,125 @@ export function useUploader(onDone?: () => void, onNotify?: (msg: { title: strin
     processQueue()
   }
 
-  /** 处理上传队列 */
+  /** 处理上传队列（demo 模拟任务不占用并发槽位） */
   async function processQueue() {
-    const pending = tasks.value.filter(t => t.status === 'pending')
-    const running = tasks.value.filter(t => t.status === 'uploading')
+    const pending: UploadTask[] = tasks.value.filter(t => (t.status === 'pending' || t.status === 'paused') && !t.id.startsWith('demo-'))
+    const running: UploadTask[] = tasks.value.filter(t => t.status === 'uploading' && !t.id.startsWith('demo-'))
     const slots = maxConcurrent - running.length
-    for (let i = 0; i < Math.min(slots, pending.length); i++) {
-      uploadFile(pending[i])
+    for (const t of pending) {
+      if (slots <= 0) break
+      uploadFile(t)
     }
   }
 
-  /** 上传单个文件 */
+  /** 按文件大小选择分片并发数（文档策略） */
+  function getConcurrency(size: number): number {
+    if (size < 100 * 1024 * 1024) return 3
+    if (size < 1024 * 1024 * 1024) return 5
+    if (size < 10 * 1024 * 1024 * 1024) return 8
+    return 10
+  }
+
+  /**
+   * 上传单个文件（R2 Multipart Upload：init → 分片直传 → complete）
+   * 支持断点续传：已有 sessionId 时复用，跳过已完成分片
+   */
   async function uploadFile(task: UploadTask) {
     task.status = 'uploading'
-    const chunkSize = getChunkSize()
+    const controller = new AbortController()
+    taskControllers.set(task.id, controller)
+    task.uploadedBytes = task.uploadedBytes || 0
 
     try {
-      if (task.file.size <= chunkSize) {
-        // 小文件直传
-        const form = new FormData()
-        form.append('file', task.file)
-        if (task.folderId) form.append('folderId', task.folderId)
-
-        await $fetch('/api/upload', { method: 'POST', body: form })
-        task.progress = 100
-      }
-      else {
-        // 大文件分片上传
-        const totalChunks = Math.ceil(task.file.size / chunkSize)
-        let uploadId: string | null = null
-
-        for (let i = 0; i < totalChunks; i++) {
-          const start = i * chunkSize
-          const end = Math.min(start + chunkSize, task.file.size)
-          const chunk = task.file.slice(start, end, task.file.type)
-
-          const form = new FormData()
-          form.append('file', chunk, task.file.name)
-          if (task.folderId) form.append('folderId', task.folderId)
-
-          const res = await $fetch<any>('/api/upload', {
-            method: 'POST',
-            body: form,
-            headers: {
-              'x-chunk-index': String(i),
-              'x-chunk-total': String(totalChunks),
-              ...(uploadId ? { 'x-upload-id': uploadId } : {}),
-            },
-          })
-
-          if (res.uploadId) uploadId = res.uploadId
-          task.progress = Math.round(((i + 1) / totalChunks) * 100)
-        }
+      // Step 1: 初始化（或复用已有会话实现断点续传）
+      let sessionId: string | undefined = task.sessionId
+      let partSize = 10 * 1024 * 1024
+      if (!sessionId) {
+        const init = await $fetch<any>('/api/upload/init', {
+          method: 'POST',
+          body: {
+            filename: task.file.name,
+            size: task.file.size,
+            contentType: task.file.type,
+            folderId: task.folderId,
+          },
+        })
+        sessionId = init.sessionId
+        partSize = init.partSize
+        task.sessionId = sessionId
+      } else {
+        // 断点续传：查询已完成分片
+        try {
+          const sess = await $fetch<any>(`/api/upload/session/${sessionId}`)
+          if (sess.session?.partSize) partSize = sess.session.partSize
+          const done = new Set((sess.completedParts || []).map((p: any) => p.partNumber))
+          // 进度恢复到已完成分片
+          const uploadedChunks = Array.from(done).length
+          task.uploadedBytes = Math.min(uploadedChunks * partSize, task.file.size)
+          task.progress = Math.min(99, Math.round((task.uploadedBytes / task.file.size) * 100))
+        } catch {}
       }
 
+      const totalParts = Math.max(1, Math.ceil(task.file.size / partSize))
+
+      // 查询已完成分片（新会话为空）
+      let doneParts = new Set<number>()
+      if (sessionId) {
+        try {
+          const sess = await $fetch<any>(`/api/upload/session/${sessionId}`)
+          doneParts = new Set((sess.completedParts || []).map((p: any) => p.partNumber))
+        } catch {}
+      }
+
+      // Step 2: 并发上传分片（PUT 直传 R2）
+      const uploadPart = async (partNumber: number) => {
+        const start = (partNumber - 1) * partSize
+        const end = Math.min(start + partSize, task.file.size)
+        const chunk = task.file.slice(start, end, task.file.type)
+
+        const { signedUrl } = await $fetch<any>('/api/upload/part-url', {
+          method: 'POST',
+          body: { sessionId, partNumber },
+        })
+
+        const putRes = await fetch(signedUrl, {
+          method: 'PUT',
+          body: chunk,
+          headers: { 'Content-Type': task.file.type },
+          signal: controller.signal,
+        })
+        if (!putRes.ok) throw new Error(`分片 ${partNumber} 上传失败 (${putRes.status})`)
+
+        const etag = (putRes.headers.get('ETag') || '').replace(/"/g, '')
+        await $fetch('/api/upload/part-complete', {
+          method: 'POST',
+          body: { sessionId, partNumber, etag, size: chunk.size },
+        })
+
+        // 更新进度
+        const uploaded = Math.min((partNumber - 1) * partSize + chunk.size, task.file.size)
+        task.uploadedBytes = Math.max(task.uploadedBytes || 0, uploaded)
+        task.progress = Math.min(99, Math.round((task.uploadedBytes / task.file.size) * 100))
+      }
+
+      const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1).filter(p => !doneParts.has(p))
+      const concurrency = getConcurrency(task.file.size)
+      for (let i = 0; i < partNumbers.length; i += concurrency) {
+        if (controller.signal.aborted) break
+        const batch = partNumbers.slice(i, i + concurrency)
+        await Promise.all(batch.map(uploadPart))
+      }
+
+      if (controller.signal.aborted) return // 被暂停/取消
+
+      // Step 3: 完成上传
+      const uploadRes = await $fetch<any>('/api/upload/complete', {
+        method: 'POST',
+        body: { sessionId },
+      })
+      task.progress = 100
       task.status = 'done'
+      taskControllers.delete(task.id)
       history.value.unshift({
         id: task.id,
         fileName: task.file.name,
@@ -170,9 +196,16 @@ export function useUploader(onDone?: () => void, onNotify?: (msg: { title: strin
       if (history.value.length > 100) history.value.pop()
       saveHistory()
       onNotify?.({ title: `${task.file.name} 上传完成`, icon: 'i-lucide-circle-check' })
-      onDone?.()
+      onDone?.(uploadRes)
     }
     catch (e: any) {
+      taskControllers.delete(task.id)
+      // 被暂停/取消时静默处理
+      if (controller.signal.aborted && task.status !== 'done') {
+        // 状态已在 togglePause / cancelTask 中设置
+        processQueue()
+        return
+      }
       task.status = 'error'
       task.error = e?.message || 'Upload failed'
       history.value.unshift({
@@ -194,26 +227,35 @@ export function useUploader(onDone?: () => void, onNotify?: (msg: { title: strin
     processQueue()
   }
 
-  /** 暂停/继续任务 */
+  /** 暂停/继续任务（AbortController 中断，断点续传恢复） */
   function togglePause(id: string) {
     const task = tasks.value.find(t => t.id === id)
     if (!task) return
     if (task.status === 'uploading') {
+      taskControllers.get(id)?.abort()
+      taskControllers.delete(id)
       task.status = 'paused'
       onNotify?.({ title: `${task.file.name} 已暂停`, icon: 'i-lucide-pause' })
+      processQueue()
     }
     else if (task.status === 'paused') {
       task.status = 'uploading'
       onNotify?.({ title: `${task.file.name} 已继续`, icon: 'i-lucide-play' })
-      processQueue()
+      uploadFile(task)
     }
   }
 
-  /** 取消任务 */
+  /** 取消任务（中止 R2 Multipart 并清理会话） */
   function cancelTask(id: string) {
     const idx = tasks.value.findIndex(t => t.id === id)
     if (idx === -1) return
     const task = tasks.value[idx]
+    taskControllers.get(id)?.abort()
+    taskControllers.delete(id)
+    // 通知后端中止 Multipart 会话
+    if (task.sessionId) {
+      $fetch('/api/upload/abort', { method: 'POST', body: { sessionId: task.sessionId } }).catch(() => {})
+    }
     tasks.value.splice(idx, 1)
     history.value.unshift({
       id: task.id,

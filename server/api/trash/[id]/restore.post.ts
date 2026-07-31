@@ -12,19 +12,22 @@ export default defineEventHandler(async (event) => {
 
   // 还原到原位置（如果原文件夹已删除则放到根目录）
   const parentId = row.folderId
+  const newId = crypto.randomUUID()
 
   if (row.isFolder) {
     await db.insert(folders).values({
-      id: crypto.randomUUID(),
+      id: newId,
       userId: row.userId,
       parentId,
       name: row.name,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+    await db.delete(trash).where(eq(trash.id, id))
+    return { id: newId, name: row.name, parentId, updatedAt: Date.now(), isFolder: true, type: 'folder' }
   } else {
     await db.insert(files).values({
-      id: crypto.randomUUID(),
+      id: newId,
       userId: row.userId,
       folderId: parentId,
       filename: row.name,
@@ -34,8 +37,7 @@ export default defineEventHandler(async (event) => {
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+    await db.delete(trash).where(eq(trash.id, id))
+    return { id: newId, filename: row.name, folderId: parentId, size: row.size, updatedAt: Date.now(), type: 'file' }
   }
-
-  await db.delete(trash).where(eq(trash.id, id))
-  return { success: true }
 })

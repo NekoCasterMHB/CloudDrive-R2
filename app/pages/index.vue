@@ -4,11 +4,12 @@
       <div class="flex items-center px-4 h-14 gap-3">
         <img src="/logo.png" alt="CloudDrive" class="h-8 w-8 rounded-lg object-cover" />
         <h1 class="text-lg font-semibold truncate flex-1">CloudDrive</h1>
-        <UPopover :ui="{ content: 'w-80' }">
-          <UButton icon="i-lucide-arrow-up-down" variant="ghost" size="md" :badge="activeCount || undefined" />
+        <UPopover v-model:open="showTransferPopover" :ui="{ content: 'w-80' }">
+          <UButton icon="i-lucide-arrow-up-down" :label="$t('app.transfers')" :ui="{ label: 'hidden sm:inline' }" variant="subtle" size="md" :badge="activeCount || undefined" />
           <template #content>
             <div class="p-2">
               <p class="text-xs text-gray-500 font-medium px-2 py-1">{{ $t('app.recentTransfers') }}</p>
+              <p class="text-[0.65rem] text-gray-400 px-2 pb-1 -mt-0.5">{{ $t('app.transfersHint') }}</p>
               <div v-if="latestHistory.length === 0" class="text-sm text-gray-400 text-center py-4">{{ $t('app.noTransfers') }}</div>
               <div class="space-y-0.5">
                 <div v-for="h in latestHistory" :key="h.id" class="group flex items-center gap-2 px-2 py-1.5 text-sm relative overflow-hidden rounded cursor-pointer hover:ring-1 hover:ring-blue-400 dark:hover:ring-blue-500" :class="h.status === 'done' ? 'bg-green-50 dark:bg-green-950' : ''" @click="openTransferFor(h)">
@@ -25,11 +26,12 @@
                   </span>
                 </div>
               </div>
-              <UDivider class="my-1" />
+              <USeparator class="my-1" />
               <UButton variant="ghost" size="xs" block :label="$t('app.viewAll')" @click="showTransferSlideover = true" />
             </div>
           </template>
         </UPopover>
+        <UButton icon="i-lucide-trash" :label="$t('app.trash')" :ui="{ label: 'hidden sm:inline' }" variant="subtle" size="md" @click="openTrash" />
         <UDropdownMenu :items="langMenuItems">
           <UButton icon="i-lucide-languages" variant="ghost" size="md" />
         </UDropdownMenu>
@@ -80,6 +82,9 @@
         <UButton icon="i-lucide-search" variant="ghost" size="sm" @click="showSearch = true" />
         <UDropdownMenu :items="viewMenuItems">
           <UButton icon="i-lucide-layout-grid" variant="ghost" size="sm" />
+          <template #switch-trailing="{ item }">
+            <USwitch :model-value="(item as any).checked" tabindex="-1" />
+          </template>
         </UDropdownMenu>
         <UDropdownMenu :items="sortMenuItems">
           <UButton icon="i-lucide-sliders-horizontal" variant="ghost" size="sm" />
@@ -92,7 +97,27 @@
       </template>
     </nav>
 
-    <main class="flex-1 overflow-auto pb-16 md:pb-0">
+    <!-- 复制/剪切栏（独立于工具栏，显示在下方） -->
+    <div v-if="clipboard" class="sticky top-25 z-9 bg-white/80 dark:bg-gray-950/80 backdrop-blur border-b border-gray-200 dark:border-gray-800 px-4 py-2 flex items-center gap-2">
+      <UButton icon="i-lucide-x" variant="ghost" size="sm" :label="$t('app.cancel')" @click="clearClipboard" />
+      <div class="flex items-center gap-1.5 overflow-x-auto flex-1 min-w-0 px-1">
+        <span v-for="ci in clipboard.items" :key="ci.id" class="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-full px-2 py-0.5 shrink-0">
+          <UIcon :name="ci.icon" :class="ci.iconColor" class="shrink-0" />
+          <span class="max-w-28 truncate">{{ ci.name }}</span>
+        </span>
+      </div>
+      <UButton icon="i-lucide-clipboard-paste" variant="subtle" size="sm" :label="$t('app.paste')" @click="pasteClipboard" />
+    </div>
+
+    <main class="flex-1 overflow-auto pb-16 md:pb-0 relative" @dragenter="onMainDragEnter" @dragover="onMainDragOver" @dragleave="onMainDragLeave" @drop="onMainDrop">
+      <!-- 外部拖拽上传覆盖层 -->
+      <div v-if="externalDrag" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+        <div class="bg-white dark:bg-gray-900 border-2 border-dashed border-blue-400 rounded-xl px-8 py-6 shadow-lg flex flex-col items-center gap-2">
+          <UIcon name="i-lucide-cloud-upload" class="text-4xl text-blue-500" />
+          <p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ $t('app.dropToUpload') }}</p>
+          <p v-if="hoverFolderName" class="text-xs text-blue-500">{{ $t('app.dropIntoFolder', { folder: hoverFolderName }) }}</p>
+        </div>
+      </div>
       <div v-if="loading || searchLoading" class="flex justify-center py-20">
         <UIcon name="i-lucide-loader-circle" class="text-3xl animate-spin text-gray-400" />
       </div>
@@ -105,26 +130,53 @@
         <p class="text-lg">{{ $t('app.emptyFolder') }}</p>
         <p class="text-sm">{{ $t('app.emptyHint') }}</p>
       </div>
-      <div v-else-if="viewMode === 'grid'" class="p-2">
-        <div :class="['grid', gridViewClasses.cols, gridViewClasses.gap]">
-          <UTooltip v-if="pathStack.length > 0" text="../">
-            <div :class="['aspect-4/3 flex flex-col items-center justify-center rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 active:scale-95 transition-transform select-none gap-1', gridViewClasses.padding]" @click="goBack">
-              <div class="flex-1 flex items-center justify-center w-full min-h-0">
-                <UIcon name="fluent-emoji:open-file-folder" :class="gridViewClasses.iconSize" />
-              </div>
-              <span :class="['leading-tight text-center text-gray-500 line-clamp-2 max-w-full break-all shrink-0', gridViewClasses.fontSize]">{{ '../' }}</span>
-            </div>
-          </UTooltip>
-          <UContextMenu v-for="item in filteredItems" :key="item.id" :items="getContextMenuItems(item)">
-            <UTooltip :text="item.name">
-              <div :class="['aspect-4/3 flex flex-col items-center justify-center rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 active:scale-95 transition-transform select-none gap-1', gridViewClasses.padding]" @click="onItemClick(item)">
-                <div class="flex-1 flex items-center justify-center w-full min-h-0">
-                  <UIcon :name="item.icon || 'i-lucide-file'" :class="[gridViewClasses.iconSize, item.iconColor || 'text-gray-400']" />
+      <div v-else-if="viewMode === 'grid'">
+        <div ref="gridContainer" class="relative p-2 select-none" @pointerdown="onGridPointerDown" @dragover.prevent @drop.prevent>
+          <div :class="['grid', gridViewClasses.cols, gridViewClasses.gap]">
+            <UTooltip v-if="pathStack.length > 0" text="../">
+              <div :class="['flex flex-col items-center rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 active:scale-95 transition-transform select-none gap-1', gridViewClasses.padding]" @click="goBack">
+                <div :class="['w-full flex items-center justify-center overflow-hidden rounded-md', gridViewClasses.thumbHeight]">
+                  <UIcon name="fluent-emoji:open-file-folder" :class="gridViewClasses.iconSize" />
                 </div>
-                <span :class="['leading-tight text-center line-clamp-2 max-w-full break-all shrink-0', gridViewClasses.fontSize]">{{ item.name }}</span>
+                <span :class="['leading-tight text-center text-gray-500 line-clamp-2 overflow-hidden h-[2lh] max-w-full break-all shrink-0', gridViewClasses.fontSize]">{{ '../' }}</span>
               </div>
             </UTooltip>
-          </UContextMenu>
+            <UContextMenu v-for="item in filteredItems" :key="item.id" :items="getContextMenuItems(item)">
+              <UTooltip :text="item.name">
+                <div
+                  :data-grid-item="true"
+                  :data-id="item.id"
+                  draggable="true"
+                  :class="[
+                    'flex flex-col items-center rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 active:scale-95 transition-transform select-none gap-1',
+                    gridViewClasses.padding,
+                    fileSelected.has(item.id) ? 'ring-2 ring-blue-400 bg-blue-50/60 dark:bg-blue-950/30' : '',
+                    isClipboardSource(item.id) ? 'opacity-40 pointer-events-none' : '',
+                    dropTargetId === item.id ? 'ring-2 ring-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/40' : '',
+                    dragIds.includes(item.id) ? 'opacity-40' : '',
+                  ]"
+                  @click="onGridItemClick(item, $event)"
+                  @dragstart="onGridDragStart(item, $event)"
+                  @dragend="onGridDragEnd"
+                  @dragover="onFolderDragOver(item, $event)"
+                  @dragleave="onFolderDragLeave($event)"
+                  @drop="onFolderDrop(item, $event)"
+                >
+                  <div :class="['w-full flex items-center justify-center overflow-hidden rounded-md', gridViewClasses.thumbHeight]">
+                    <img v-if="enableThumbnails && item.isImage" :src="`/api/files/${item.id}/download`" :alt="item.name" loading="lazy" class="max-w-full max-h-full object-contain" />
+                    <UIcon v-else :name="item.icon || 'i-lucide-file'" :class="[gridViewClasses.iconSize, item.iconColor || 'text-gray-400']" />
+                  </div>
+                  <span :class="['leading-tight text-center line-clamp-2 overflow-hidden h-[2lh] max-w-full break-all shrink-0', gridViewClasses.fontSize]">{{ item.name }}</span>
+                </div>
+              </UTooltip>
+            </UContextMenu>
+          </div>
+          <!-- Rubber band 框选 -->
+          <div
+            v-if="rubberBand"
+            class="fixed z-20 pointer-events-none border border-blue-400 bg-blue-400/20 rounded-sm"
+            :style="{ left: `${rubberBand.x}px`, top: `${rubberBand.y}px`, width: `${rubberBand.w}px`, height: `${rubberBand.h}px` }"
+          />
         </div>
       </div>
       <div v-else>
@@ -166,6 +218,7 @@
     <!-- Transfer Slideover -->
     <USlideover v-model:open="showTransferSlideover" :title="$t('app.transfers')">
       <template #body>
+        <p class="text-xs text-gray-400 px-1 pb-2">{{ $t('app.transfersHint') }}</p>
         <UTabs :items="transferTabs" v-model="transferTab" class="flex-1" :ui="{ content: 'p-0' }">
           <template #content>
             <div class="flex gap-1 px-1 py-2 border-b border-gray-100 dark:border-gray-800 items-center">
@@ -253,7 +306,7 @@
 <script setup lang="ts">
 import { h, resolveComponent } from 'vue'
 import type { DropdownMenuItem, TableColumn, ContextMenuItem } from '@nuxt/ui'
-import { LazyTrashModal, LazyConfirmModal } from '#components'
+import { LazyTrashModal, LazyConfirmModal, LazyRenameModal } from '#components'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -261,8 +314,10 @@ const { user, logout } = useAuth()
 const { locale, locales, setLocale, t } = useI18n()
 const toast = useToast()
 
-const items = ref<any[]>([])
-const loading = ref(true)
+const { items, ready, loading, loadAll, fullSync, syncItem, getChildren, getItem, upsertItem, addItem, removeItem } = useFileIndex()
+
+// 当前目录显示列表：独立于索引 items，避免覆盖导致索引持久化损坏
+const currentItems = ref<any[]>([])
 
 function loadSetting(key: string, fallback: string): string {
   if (typeof localStorage === 'undefined') return fallback
@@ -270,8 +325,8 @@ function loadSetting(key: string, fallback: string): string {
 }
 
 const viewMode = ref<'grid' | 'list'>(loadSetting('view_mode', 'grid') as 'grid' | 'list')
-const displayMode = ref<'thumbnail' | 'icon'>(loadSetting('display_mode', 'icon') as 'thumbnail' | 'icon')
 const gridSize = ref<'sm' | 'md' | 'lg'>(loadSetting('grid_size', 'md') as 'sm' | 'md' | 'lg')
+const enableThumbnails = ref(loadSetting('enable_thumbnails', 'true') === 'true')
 const sortBy = ref<'name' | 'size' | 'type' | 'modified'>(loadSetting('sort_by', 'name') as 'name' | 'size' | 'type' | 'modified')
 const sortOrder = ref<'asc' | 'desc'>(loadSetting('sort_order', 'asc') as 'asc' | 'desc')
 const currentFolderId = ref<string | null>(loadCurrentFolderId())
@@ -295,8 +350,8 @@ function loadPathStack(): { id: string, name: string }[] {
   } catch { return [] }
 }
 
-watch(displayMode, (val) => {
-  if (typeof localStorage !== 'undefined') localStorage.setItem('display_mode', val)
+watch(enableThumbnails, (val) => {
+  if (typeof localStorage !== 'undefined') localStorage.setItem('enable_thumbnails', String(val))
 })
 
 watch(viewMode, (val) => {
@@ -333,13 +388,16 @@ const folderNameError = computed(() => {
   const name = folderName.value
   if (!name.trim()) return ''
   if (FORBIDDEN_CHARS.test(name)) return t('app.invalidChars')
-  if (items.value.some((i: any) => i.type === 'folder' && i.name === name.trim())) return t('app.duplicateName')
+  if (currentItems.value.some((i: any) => i.type === 'folder' && i.name === name.trim())) return t('app.duplicateName')
   return ''
 })
 const canCreate = computed(() => folderName.value.trim() && !folderNameError.value)
 
 // Upload
-const { tasks, history, addFiles, clearDone, clearHistory, removeHistory, togglePause, cancelTask, saveHistory } = useUploader(loadData, (msg) => {
+const { tasks, history, addFiles, clearDone, clearHistory, removeHistory, togglePause, cancelTask, saveHistory } = useUploader((record) => {
+  if (record?.id) syncItem(record)
+  loadCurrent()
+}, (msg) => {
   toast.add({ title: msg.title, color: msg.color as any, icon: msg.icon })
 })
 const fileInput = ref<HTMLInputElement>()
@@ -357,6 +415,7 @@ async function showConfirm(title: string, message: string, icon: string, onConfi
 
 function getContextMenuItems(item: any): ContextMenuItem[][] {
   const isFolder = item.type === 'folder'
+  const multi = fileSelected.value.size > 1
   return [
     [
       {
@@ -366,11 +425,18 @@ function getContextMenuItems(item: any): ContextMenuItem[][] {
       },
     ],
     [
-      { label: t('app.copy'), icon: 'i-lucide-copy', onSelect() { copyItem(item) } },
-      { label: t('app.cut'), icon: 'i-lucide-scissors', onSelect() { cutItem(item) } },
+      { label: t('app.rename'), icon: 'i-lucide-square-pen', onSelect() { renameItem(item) } },
+    ],
+    [
       {
-        label: t('app.paste'), icon: 'i-lucide-clipboard-paste',
-        onSelect() { showConfirm(t('app.paste'), t('app.confirmPaste'), 'i-lucide-clipboard-paste', () => pasteItem(item)) },
+        label: multi ? t('app.copyBatch') : t('app.copy'),
+        icon: 'i-lucide-copy',
+        onSelect() { enterClipboard(buildClipboardItems(item), 'copy') },
+      },
+      {
+        label: multi ? t('app.cutBatch') : t('app.cut'),
+        icon: 'i-lucide-scissors',
+        onSelect() { enterClipboard(buildClipboardItems(item), 'cut') },
       },
     ],
     [
@@ -429,15 +495,25 @@ async function previewImage(item: any) {
   lightbox.loadAndOpen(Math.max(0, currentIndex))
   lightbox.on('close', () => { lightbox.destroy() })
 }
-function copyItem(item: any) {
-  toast.add({ title: `${t('app.copy')}: ${item.name}`, icon: 'i-lucide-copy', duration: 2000 })
-}
-function cutItem(item: any) {
-  toast.add({ title: `${t('app.cut')}: ${item.name}`, icon: 'i-lucide-scissors', duration: 2000 })
-}
-function pasteItem(item: any): Promise<void> {
-  toast.add({ title: `${t('app.confirmPaste')}`, icon: 'i-lucide-clipboard-paste', duration: 2000 })
-  return Promise.resolve()
+async function renameItem(item: any) {
+  const overlay = useOverlay()
+  const newName = await overlay.create(LazyRenameModal).open({
+    title: t('app.rename'),
+    initialName: item.name,
+    onConfirm: async (name: string) => {
+      const endpoint = item.type === 'folder' ? `/api/folders/${item.id}` : `/api/files/${item.id}`
+      const res = await $fetch(endpoint, { method: 'PATCH', body: { name } })
+      syncItem(res)
+    },
+  })
+  if (!newName) return
+  // 若重命名的是当前所在文件夹，同步更新面包屑名称
+  if (item.type === 'folder') {
+    const last = pathStack.value[pathStack.value.length - 1]
+    if (last && last.id === item.id) last.name = newName
+  }
+  loadCurrent()
+  toast.add({ title: `${t('app.rename')}: ${item.name} → ${newName}`, icon: 'i-lucide-pencil', duration: 2000 })
 }
 
 function onTableSelect(_e: Event, row: any) {
@@ -445,18 +521,48 @@ function onTableSelect(_e: Event, row: any) {
   onItemClick(row.original)
 }
 
-function trashItem(item: any): Promise<void> {
-  const path = [...pathStack.value.map(p => p.name), item.name].join('/')
-  return $fetch('/api/trash', {
-    method: 'POST',
-    body: { id: item.id, type: item.type, originalPath: path },
-  }).then(() => {
-    toast.add({ title: `${item.name} ${t('app.moveToTrash')}`, icon: 'i-lucide-trash-2', duration: 2000 })
-    loadData()
-  }).catch(() => {
+function downloadFile(item: any) {
+  if (item.type !== 'file') {
+    toast.add({ title: t('app.folderDownloadUnsupported'), icon: 'i-lucide-circle-x', duration: 3000 })
+    return
+  }
+  const a = document.createElement('a')
+  a.href = `/api/files/${item.id}/download?download=1`
+  a.download = item.name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+async function trashItem(item: any): Promise<void> {
+  // 多选时批量删除所有选中项
+  const ids = fileSelected.value.size > 1 ? Array.from(fileSelected.value) : [item.id]
+  const names: string[] = []
+  for (const id of ids) {
+    const it = getItem(id)
+    if (!it) continue
+    const path = [...pathStack.value.map(p => p.name), it.name].join('/')
+    try {
+      await $fetch('/api/trash', {
+        method: 'POST',
+        body: { id, type: it.type, originalPath: path },
+      })
+      names.push(it.name)
+      removeItem(id)
+    } catch { /* 单个失败继续下一个 */ }
+  }
+  clearFileSelection()
+  loadCurrent()
+  if (names.length > 0) {
+    toast.add({
+      title: `${names[0]}${names.length > 1 ? ` ${t('app.andMore', { count: names.length })}` : ''} ${t('app.moveToTrash')}`,
+      icon: 'i-lucide-trash-2',
+      duration: 3000,
+    })
+  } else {
     toast.add({ title: `${t('app.moveToTrash')} ${t('app.failed')}`, color: 'error', icon: 'i-lucide-circle-x', duration: 3000 })
     throw new Error('trash failed')
-  })
+  }
 }
 
 function toggleActive(id: string) {
@@ -471,6 +577,349 @@ function toggleActive(id: string) {
   }
   // Force reactivity
   activeItems.value = new Set(s)
+}
+
+// ===== 文件网格：多选 / 框选 / 拖拽移动 / 复制剪切 =====
+const fileSelected = ref<Set<string>>(new Set())
+const fileSelectionCount = computed(() => fileSelected.value.size)
+const dragIds = ref<string[]>([])
+const dropTargetId = ref<string | null>(null)
+
+// 复制/剪切剪贴板（进入复制剪切模式时工具栏切换）
+const clipboard = ref<{ items: { id: string; type: string; name: string; icon: string; iconColor: string }[]; mode: 'copy' | 'cut' } | null>(null)
+
+const rubberBand = ref<{ x: number; y: number; w: number; h: number } | null>(null)
+let rubberStart: { x: number; y: number } | null = null
+let rubberMoved = false
+let rubberItemRects: { id: string; rect: DOMRect }[] = []
+const gridContainer = ref<HTMLElement>()
+
+function clearFileSelection() {
+  fileSelected.value = new Set()
+}
+
+// ===== 复制 / 剪切 / 粘贴 =====
+function isClipboardSource(id: string) {
+  return clipboard.value?.items.some(i => i.id === id) ?? false
+}
+
+function buildClipboardItems(item: any) {
+  const ids = fileSelected.value.size > 1 ? Array.from(fileSelected.value) : [item.id]
+  return ids.map(id => {
+    const it = getItem(id)
+    return { id, type: it?.type || 'file', name: it?.name || id, icon: it?.icon || 'i-lucide-file', iconColor: it?.iconColor || 'text-gray-400' }
+  })
+}
+
+function enterClipboard(items: any[], mode: 'copy' | 'cut') {
+  clipboard.value = { items, mode }
+  clearFileSelection()
+  toast.add({
+    title: mode === 'copy'
+      ? `${t('app.copied')} ${items.length} ${t('app.items')}`
+      : `${t('app.cut')} ${items.length} ${t('app.items')}`,
+    icon: mode === 'copy' ? 'i-lucide-copy' : 'i-lucide-scissors',
+    duration: 2000,
+  })
+}
+
+function clearClipboard() {
+  clipboard.value = null
+}
+
+async function pasteClipboard() {
+  if (!clipboard.value) return
+  const { items: clipItems, mode } = clipboard.value
+  const payload = clipItems.map(i => ({ id: i.id, type: i.type }))
+  const targetFolderId = currentFolderId.value
+  try {
+    if (mode === 'cut') {
+      const res = await $fetch<any>('/api/move', { method: 'POST', body: { items: payload, targetFolderId } })
+      for (const f of (res.files || [])) syncItem(f)
+      for (const fo of (res.folders || [])) syncItem(fo)
+      const movedFolderIds = new Set((res.folders || []).map((f: any) => f.id))
+      const idx = pathStack.value.findIndex(p => movedFolderIds.has(p.id))
+      if (idx >= 0) {
+        pathStack.value = pathStack.value.slice(0, idx)
+        currentFolderId.value = pathStack.value[idx - 1]?.id ?? null
+      }
+    } else {
+      const res = await $fetch<any>('/api/copy', { method: 'POST', body: { items: payload, targetFolderId } })
+      for (const f of (res.folders || [])) syncItem(f)
+      for (const fo of (res.files || [])) syncItem(fo)
+    }
+    const names = clipItems.map(i => i.name)
+    toast.add({
+      title: `${mode === 'copy' ? t('app.copied') : t('app.moved')} ${names[0]}${names.length > 1 ? ` ${t('app.andMore', { count: names.length })}` : ''}`,
+      icon: 'i-lucide-clipboard-paste',
+      duration: 3000,
+    })
+    clearClipboard()
+    loadCurrent()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.message || t('app.pasteFailed'), color: 'error', icon: 'i-lucide-circle-x', duration: 3000 })
+  }
+}
+
+function onGridItemClick(item: any, e: MouseEvent) {
+  // Ctrl/Cmd：切换单项
+  if (e.metaKey || e.ctrlKey) {
+    const s = new Set(fileSelected.value)
+    if (s.has(item.id)) s.delete(item.id)
+    else s.add(item.id)
+    fileSelected.value = s
+    return
+  }
+  // Shift：范围选择
+  if (e.shiftKey) {
+    const ids = filteredItems.value.map(i => i.id)
+    const cur = ids.indexOf(item.id)
+    let anchor = -1
+    for (let i = ids.length - 1; i >= 0; i--) {
+      if (fileSelected.value.has(ids[i])) { anchor = i; break }
+    }
+    if (anchor >= 0 && cur >= 0) {
+      const s = new Set(fileSelected.value)
+      const [a, b] = anchor < cur ? [anchor, cur] : [cur, anchor]
+      for (let i = a; i <= b; i++) s.add(ids[i])
+      fileSelected.value = s
+      return
+    }
+  }
+  // 普通单击：单选并执行原有行为（文件夹打开 / 文件预览）
+  if (item.type === 'folder') {
+    // 进入文件夹后清除选择，避免选择在当前视图外悬挂
+    clearFileSelection()
+    onItemClick(item)
+    return
+  }
+  fileSelected.value = new Set([item.id])
+  onItemClick(item)
+}
+
+// 框选（rubber band）
+function onGridPointerDown(e: PointerEvent) {
+  if (e.button !== 0) return
+  const target = e.target as HTMLElement
+  // 点击项内部时不启动框选（拖动项由 dragstart 处理）
+  if (target.closest('[data-grid-item]')) return
+  rubberStart = { x: e.clientX, y: e.clientY }
+  rubberMoved = false
+  rubberItemRects = Array.from(gridContainer.value?.querySelectorAll('[data-grid-item]') || []).map(el => ({
+    id: el.getAttribute('data-id')!,
+    rect: el.getBoundingClientRect(),
+  }))
+  window.addEventListener('pointermove', onRubberMove)
+  window.addEventListener('pointerup', onRubberUp)
+}
+
+function onRubberMove(e: PointerEvent) {
+  if (!rubberStart) return
+  const dx = e.clientX - rubberStart.x
+  const dy = e.clientY - rubberStart.y
+  if (Math.abs(dx) > 4 || Math.abs(dy) > 4) rubberMoved = true
+  if (!rubberMoved) return
+  const x = Math.min(rubberStart.x, e.clientX)
+  const y = Math.min(rubberStart.y, e.clientY)
+  const w = Math.abs(dx)
+  const h = Math.abs(dy)
+  rubberBand.value = { x, y, w, h }
+  const s = new Set<string>()
+  for (const { id, rect } of rubberItemRects) {
+    if (rect.left < x + w && rect.right > x && rect.top < y + h && rect.bottom > y) {
+      s.add(id)
+    }
+  }
+  fileSelected.value = s
+}
+
+function onRubberUp() {
+  window.removeEventListener('pointermove', onRubberMove)
+  window.removeEventListener('pointerup', onRubberUp)
+  rubberBand.value = null
+  rubberStart = null
+  if (!rubberMoved) {
+    // 点击空白：清除选择
+    fileSelected.value = new Set()
+  }
+}
+
+// ===== 外部拖拽上传（文件/文件夹拖入） =====
+const externalDrag = ref(false)
+const hoverFolderId = ref<string | null>(null)
+const hoverFolderName = ref('')
+let enterFolderTimer: ReturnType<typeof setTimeout> | null = null
+
+// 内部拖拽（网盘内移动）的自定义标记类型，用于与外部文件拖入区分
+const INTERNAL_DRAG_TYPE = 'application/x-clouddrive-items'
+
+function isExternalDrag(e: DragEvent): boolean {
+  if (!e.dataTransfer) return false
+  const types = Array.from(e.dataTransfer.types)
+  return types.includes('Files') && !types.includes(INTERNAL_DRAG_TYPE)
+}
+
+function clearEnterTimer() {
+  if (enterFolderTimer) {
+    clearTimeout(enterFolderTimer)
+    enterFolderTimer = null
+  }
+}
+
+function onMainDragEnter(e: DragEvent) {
+  if (!isExternalDrag(e)) return
+  e.preventDefault()
+  externalDrag.value = true
+}
+
+function onMainDragOver(e: DragEvent) {
+  if (!isExternalDrag(e)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+
+function onMainDragLeave(e: DragEvent) {
+  if (!isExternalDrag(e)) return
+  const main = e.currentTarget as HTMLElement
+  const rt = e.relatedTarget as Node | null
+  if (!rt || !main.contains(rt)) {
+    externalDrag.value = false
+    hoverFolderId.value = null
+    hoverFolderName.value = ''
+    clearEnterTimer()
+  }
+}
+
+async function onMainDrop(e: DragEvent) {
+  if (!isExternalDrag(e)) return
+  e.preventDefault()
+  e.stopPropagation()
+  externalDrag.value = false
+  hoverFolderId.value = null
+  hoverFolderName.value = ''
+  clearEnterTimer()
+  const files = Array.from(e.dataTransfer?.files || [])
+  if (files.length === 0) return
+  await handleDroppedFiles(files)
+}
+
+// 拖拽移动
+function onGridDragStart(item: any, e: DragEvent) {
+  if (!fileSelected.value.has(item.id)) {
+    fileSelected.value = new Set([item.id])
+  }
+  dragIds.value = Array.from(fileSelected.value)
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData(INTERNAL_DRAG_TYPE, dragIds.value.join(','))
+    e.dataTransfer.setData('text/plain', dragIds.value.join(','))
+  }
+}
+
+function onGridDragEnd() {
+  dragIds.value = []
+  dropTargetId.value = null
+}
+
+function onFolderDragOver(item: any, e: DragEvent) {
+  // 外部文件拖入：悬停文件夹自动进入
+  if (isExternalDrag(e)) {
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    if (item.type === 'folder' && hoverFolderId.value !== item.id) {
+      hoverFolderId.value = item.id
+      hoverFolderName.value = item.name
+      clearEnterTimer()
+      enterFolderTimer = setTimeout(() => {
+        hoverFolderId.value = null
+        hoverFolderName.value = ''
+        clearFileSelection()
+        onItemClick(item)
+      }, 700)
+    }
+    return
+  }
+  // 内部拖拽移动
+  if (item.type !== 'folder') return
+  if (dragIds.value.includes(item.id)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  dropTargetId.value = item.id
+}
+
+function onFolderDragLeave(e: DragEvent) {
+  dropTargetId.value = null
+  if (isExternalDrag(e)) {
+    const el = e.currentTarget as HTMLElement
+    const rt = e.relatedTarget as Node | null
+    if (!rt || !el.contains(rt)) {
+      hoverFolderId.value = null
+      hoverFolderName.value = ''
+      clearEnterTimer()
+    }
+  }
+}
+
+function onFolderDrop(item: any, e: DragEvent) {
+  if (isExternalDrag(e)) return // 外部拖拽上传交由 main 处理
+  if (item.type !== 'folder') return
+  e.preventDefault()
+  e.stopPropagation()
+  const ids = dragIds.value.length
+    ? dragIds.value
+    : (e.dataTransfer?.getData('text/plain') || '').split(',').filter(Boolean)
+  onGridDragEnd()
+  const valid = ids.filter(id => id !== item.id)
+  if (valid.length === 0) return
+  confirmMove(valid, item)
+}
+
+// 拖拽到文件夹 → 移动
+function confirmMove(ids: string[], target: any) {
+  confirmMoveToFolder(ids, target.id, target.name)
+}
+
+async function confirmMoveToFolder(ids: string[], targetFolderId: string | null, targetName: string) {
+  const itemsPayload = ids.map(id => {
+    const it = getItem(id)
+    return { id, type: it?.type || 'file' }
+  })
+  const displayNames = ids.map(id => getItem(id)?.name).filter(Boolean)
+  const overlay = useOverlay()
+  await overlay.create(LazyConfirmModal).open({
+    title: t('app.move'),
+    message: t('app.confirmMove', { count: ids.length, target: targetName }),
+    icon: 'i-lucide-folder-input',
+    confirmLabel: t('app.move'),
+    onConfirm: async () => {
+      try {
+        const res = await $fetch<any>('/api/move', {
+          method: 'POST',
+          body: { items: itemsPayload, targetFolderId },
+        })
+        for (const f of (res.files || [])) syncItem(f)
+        for (const fo of (res.folders || [])) syncItem(fo)
+        // 若移动的文件夹当前在路径栈中，跳转到其父级
+        const movedFolderIds = new Set((res.folders || []).map((f: any) => f.id))
+        const idx = pathStack.value.findIndex(p => movedFolderIds.has(p.id))
+        if (idx >= 0) {
+          pathStack.value = pathStack.value.slice(0, idx)
+          currentFolderId.value = pathStack.value[idx - 1]?.id ?? null
+        }
+        clearFileSelection()
+        loadCurrent()
+        const first = displayNames[0] || ''
+        toast.add({
+          title: `${t('app.moved')} ${first}${displayNames.length > 1 ? ` ${t('app.andMore', { count: displayNames.length })}` : ''} → ${targetName}`,
+          icon: 'i-lucide-folder-input',
+          duration: 3000,
+        })
+      } catch (e: any) {
+        toast.add({ title: e?.data?.message || t('app.moveFailed'), color: 'error', icon: 'i-lucide-circle-x', duration: 3000 })
+        throw e
+      }
+    },
+  })
 }
 
 // Long press → activate multi-select
@@ -519,6 +968,7 @@ function deleteSelected() {
 }
 
 // Transfer slideover
+const showTransferPopover = ref(false)
 const showTransferSlideover = ref(false)
 const transferTab = ref('uploading')
 const transferFilter = ref<'all' | 'upload' | 'download'>('all')
@@ -558,16 +1008,20 @@ function onFilesSelected(e: Event) {
   const input = e.target as HTMLInputElement
   if (input.files?.length) {
     addFiles(Array.from(input.files), currentFolderId.value)
+    showTransferPopover.value = true
     input.value = ''
   }
 }
 
-async function onFolderSelected(e: Event) {
-  const input = e.target as HTMLInputElement
-  const files = input.files
-  if (!files?.length) return
+async function handleDroppedFiles(files: File[]) {
+  // 纯文件拖入（无文件夹结构）
+  if (!files.some(f => f.webkitRelativePath)) {
+    addFiles(files, currentFolderId.value)
+    showTransferPopover.value = true
+    return
+  }
 
-  // Build folder tree: unique folder paths
+  // 含文件夹：构建目录树（去重所有父路径）
   const folderPaths = new Set<string>()
   for (const file of files) {
     const parts = file.webkitRelativePath.split('/')
@@ -576,7 +1030,7 @@ async function onFolderSelected(e: Event) {
     }
   }
 
-  // Create folders recursively
+  // 递归创建文件夹（父级优先）
   const folderMap = new Map<string, string | null>() // path → folderId
   folderMap.set('', currentFolderId.value)
 
@@ -591,20 +1045,29 @@ async function onFolderSelected(e: Event) {
       })
       folderMap.set(path, res.id)
     } catch {
-      // Maybe duplicate, fetch existing
+      // 可能已存在，兑底为当前文件夹
       folderMap.set(path, null)
     }
   }
 
-  // Upload files into their respective folders
+  // 按各自路径上传文件
   for (const file of files) {
     const folderPath = file.webkitRelativePath.split('/').slice(0, -1).join('/')
     const folderId = folderMap.get(folderPath) ?? currentFolderId.value
-    // Create a new File with just the basename (webkitdirectory gives full relative path as name)
+    // 用 basename 重建 File（webkitdirectory 的 name 是完整相对路径）
     const renamed = new File([file], file.name.split('/').pop()!, { type: file.type })
     addFiles([renamed], folderId)
   }
-  input.value = ''
+  showTransferPopover.value = true
+  loadCurrent()
+}
+
+async function onFolderSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (input.files?.length) {
+    await handleDroppedFiles(Array.from(input.files))
+    input.value = ''
+  }
 }
 
 // Search
@@ -661,9 +1124,9 @@ watch([searchQuery, searchScope], () => {
 // Unified filtered items: client-side for 'current', server-side for 'all'/'sub'
 const filteredItems = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return items.value
+  if (!q) return currentItems.value
   if (searchScope.value !== 'current') return searchResults.value
-  return items.value.filter(item =>
+  return currentItems.value.filter(item =>
     item.name.toLowerCase().includes(q),
   )
 })
@@ -700,7 +1163,9 @@ const tableColumns: TableColumn<any>[] = [
     cell: ({ row }) => {
       const item = row.original
       return h('div', { class: 'flex items-center gap-2 truncate' }, [
-        h(resolveComponent('UIcon'), { name: item.icon, class: `text-xl shrink-0 ${item.iconColor || 'text-gray-400'}` }),
+        item.isImage && enableThumbnails.value
+          ? h('img', { src: `/api/files/${item.id}/download`, alt: item.name, loading: 'lazy', class: 'h-9 w-9 shrink-0 object-contain rounded' })
+          : h(resolveComponent('UIcon'), { name: item.icon, class: `text-xl shrink-0 ${item.iconColor || 'text-gray-400'}` }),
         h('span', { class: 'truncate' }, item.name),
       ])
     },
@@ -708,7 +1173,7 @@ const tableColumns: TableColumn<any>[] = [
   {
     accessorKey: 'modified',
     header: '修改时间',
-    meta: { class: { th: 'w-[160px] text-left', td: 'w-[160px] text-sm text-gray-500' } },
+    meta: { class: { th: 'hidden md:table-cell w-[160px] text-left', td: 'hidden md:table-cell w-[160px] text-sm text-gray-500' } },
     cell: ({ row }) => {
       const ts: any = row.getValue('modified')
       if (!ts) return ''
@@ -718,7 +1183,7 @@ const tableColumns: TableColumn<any>[] = [
   {
     accessorKey: 'size',
     header: '文件大小',
-    meta: { class: { th: 'w-[95px] text-right', td: 'w-[95px] text-right text-sm text-gray-500' } },
+    meta: { class: { th: 'hidden md:table-cell w-[95px] text-right', td: 'hidden md:table-cell w-[95px] text-right text-sm text-gray-500' } },
     cell: ({ row }) => row.getValue('size') || '',
   },
   {
@@ -726,20 +1191,45 @@ const tableColumns: TableColumn<any>[] = [
     header: '操作',
     enableSorting: false,
     enableHiding: false,
-    meta: { class: { th: 'w-[95px] text-right', td: 'w-[95px] text-right' } },
+    meta: { class: { th: 'w-11 md:w-[130px] text-right', td: 'w-11 md:w-[130px] text-right' } },
     cell: ({ row }) => {
-      const items = getContextMenuItems(row.original)
-      return h(resolveComponent('UDropdownMenu'), {
-        'content': { align: 'end' },
-        items,
-        'aria-label': 'Actions',
-      }, () => h(resolveComponent('UButton'), {
-        icon: 'i-lucide-ellipsis-vertical',
-        color: 'neutral',
-        variant: 'ghost',
-        size: 'sm',
-        'aria-label': 'Actions',
-      }))
+      const item = row.original
+      if (item.id === '__back__') return ''
+      const items = getContextMenuItems(item)
+      return h('div', { class: 'flex items-center justify-end gap-0.5' }, [
+        // 重命名（移动端隐藏，md+ 显示）
+        h(resolveComponent('UButton'), {
+          icon: 'i-lucide-square-pen',
+          class: 'hidden md:inline-flex',
+          color: 'neutral',
+          variant: 'ghost',
+          size: 'sm',
+          'aria-label': t('app.rename'),
+          onClick: () => renameItem(item),
+        }),
+        // 下载（移动端隐藏，md+ 显示）
+        h(resolveComponent('UButton'), {
+          icon: 'i-lucide-download',
+          class: 'hidden md:inline-flex',
+          color: 'neutral',
+          variant: 'ghost',
+          size: 'sm',
+          'aria-label': t('app.download'),
+          onClick: () => downloadFile(item),
+        }),
+        // 菜单
+        h(resolveComponent('UDropdownMenu'), {
+          'content': { align: 'end' },
+          items,
+          'aria-label': 'Actions',
+        }, () => h(resolveComponent('UButton'), {
+          icon: 'i-lucide-ellipsis-vertical',
+          color: 'neutral',
+          variant: 'ghost',
+          size: 'sm',
+          'aria-label': 'Actions',
+        })),
+      ])
     },
   },
 ]
@@ -752,11 +1242,16 @@ const viewMenuItems = computed((): DropdownMenuItem[][] => [
   ],
   [
     { type: 'label' as const, label: t('app.display') },
-    { label: t('app.thumbnail'), icon: 'i-lucide-image', type: 'checkbox' as const, checked: displayMode.value === 'thumbnail', onUpdateChecked() { displayMode.value = 'thumbnail' } },
-    { label: t('app.icon'), icon: 'i-lucide-file-type', type: 'checkbox' as const, checked: displayMode.value === 'icon', onUpdateChecked() { displayMode.value = 'icon' } },
     { label: t('app.small'), icon: 'i-lucide-case-lower', type: 'checkbox' as const, checked: gridSize.value === 'sm', onUpdateChecked() { gridSize.value = 'sm' } },
     { label: t('app.medium'), icon: 'i-lucide-case-sensitive', type: 'checkbox' as const, checked: gridSize.value === 'md', onUpdateChecked() { gridSize.value = 'md' } },
     { label: t('app.large'), icon: 'i-lucide-case-upper', type: 'checkbox' as const, checked: gridSize.value === 'lg', onUpdateChecked() { gridSize.value = 'lg' } },
+  ],
+  [
+    {
+      label: t('app.enableThumbnails'), icon: 'i-lucide-image', slot: 'switch' as const,
+      checked: enableThumbnails.value,
+      onSelect(e: Event) { e.preventDefault(); enableThumbnails.value = !enableThumbnails.value },
+    },
   ],
 ])
 
@@ -777,7 +1272,9 @@ const sortMenuItems = computed((): DropdownMenuItem[][] => [
 const gridViewClasses = computed(() => {
   const size = gridSize.value
   return {
-    iconSize: size === 'sm' ? 'text-[3rem]' : size === 'lg' ? 'text-[7rem]' : 'text-[5rem]',
+    // 固定图标区高度（不依赖 aspect 比例）+ 固定图标大小 → 图标始终完整、缩略图 object-contain 完整不溢出
+    thumbHeight: size === 'sm' ? 'h-10' : size === 'lg' ? 'h-24' : 'h-16',
+    iconSize: size === 'sm' ? 'text-3xl' : size === 'lg' ? 'text-7xl' : 'text-5xl',
     fontSize: size === 'sm' ? 'text-[0.65rem]' : size === 'lg' ? 'text-[0.85rem]' : 'text-[0.75rem]',
     padding: size === 'sm' ? 'p-1' : size === 'lg' ? 'p-2.5' : 'p-2',
     cols: size === 'sm'
@@ -815,17 +1312,18 @@ const menuItems = computed(() => [
   ],
   [
     { label: t('app.settings'), icon: 'i-lucide-settings', to: '/settings' },
-    { label: t('app.trash'), icon: 'i-lucide-trash-2', onSelect: async () => {
-      const overlay = useOverlay()
-      await overlay.create(LazyTrashModal).open({ onRestored: () => loadData() })
-      loadData()
-    } },
     { label: t('app.logout'), icon: 'i-lucide-log-out', onSelect: () => logout() },
   ],
 ])
 
+function openTrash() {
+  const overlay = useOverlay()
+  overlay.create(LazyTrashModal).open({ onRestored: (record) => { if (record?.id) syncItem(record); loadCurrent() } })
+}
+
 function toItem(raw: any) {
   const isFile = raw.filename !== undefined
+  const ext = isFile ? (raw.filename.split('.').pop()?.toLowerCase() || '') : ''
   return {
     id: raw.id,
     name: isFile ? raw.filename : raw.name,
@@ -835,26 +1333,21 @@ function toItem(raw: any) {
     size: isFile ? formatSize(raw.size) : undefined,
     rawSize: isFile ? raw.size : undefined,
     modified: raw.updatedAt || raw.createdAt,
+    isImage: isFile && IMAGE_EXTS.includes(ext),
   }
 }
 
-onMounted(loadData)
+onMounted(() => loadAll().finally(loadCurrent))
 
-async function loadData() {
-  loading.value = true
-  try {
-    const res = await $fetch<any>(`/api/folders?parentId=${currentFolderId.value ?? ''}`)
-    items.value = [...(res.folders || []), ...(res.files || [])].map(toItem)
-  }
-  catch (e) { console.error(e) }
-  finally { loading.value = false }
+async function loadCurrent() {
+  currentItems.value = getChildren(currentFolderId.value)
 }
 
 function onItemClick(item: any) {
   if (item.type === 'folder') {
     currentFolderId.value = item.id
     pathStack.value.push({ id: item.id, name: item.name })
-    loadData()
+    loadCurrent()
   } else {
     previewFile(item)
   }
@@ -863,7 +1356,7 @@ function onItemClick(item: any) {
 function goBack() {
   pathStack.value.pop()
   currentFolderId.value = pathStack.value[pathStack.value.length - 1]?.id ?? null
-  loadData()
+  loadCurrent()
 }
 
 function goToBreadcrumb(index: number) {
@@ -875,7 +1368,7 @@ function goToBreadcrumb(index: number) {
     pathStack.value = pathStack.value.slice(0, index)
     currentFolderId.value = pathStack.value[index - 1]?.id ?? null
   }
-  loadData()
+  loadCurrent()
 }
 
 async function createFolder() {
@@ -883,11 +1376,12 @@ async function createFolder() {
   creating.value = true
   const name = folderName.value.trim()
   try {
-    await $fetch('/api/folders', { method: 'POST', body: { name, parentId: currentFolderId.value } })
+    const folder = await $fetch<any>('/api/folders', { method: 'POST', body: { name, parentId: currentFolderId.value } })
     showCreate.value = false
     folderName.value = ''
     toast.add({ title: `${name} ${$t('app.created')}`, icon: 'i-lucide-folder-plus' })
-    await loadData()
+    addItem(folder)
+    loadCurrent()
   }
   finally { creating.value = false }
 }

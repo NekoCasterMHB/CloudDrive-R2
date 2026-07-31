@@ -39,3 +39,27 @@ export const trash = sqliteTable('trash', {
   isFolder: integer('is_folder', { mode: 'boolean' }).notNull().default(false),
   objectKey: text('object_key'),
 })
+
+// 上传会话表（R2 Multipart Upload 会话，支持断点续传）
+export const uploadSessions = sqliteTable('upload_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  folderId: text('folder_id'),
+  uploadId: text('upload_id').notNull(), // R2 Multipart Upload ID
+  objectKey: text('object_key').notNull(),
+  filename: text('filename').notNull(),
+  fileSize: integer('file_size').notNull(),
+  contentType: text('content_type').notNull().default('application/octet-stream'),
+  status: text('status').notNull().default('pending'), // pending | uploading | completed | failed | cancelled
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// 上传分片表
+export const uploadParts = sqliteTable('upload_parts', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  partNumber: integer('part_number').notNull(),
+  etag: text('etag'),
+  size: integer('size').notNull().default(0),
+  status: text('status').notNull().default('pending'), // pending | uploading | completed | failed
+})

@@ -39,6 +39,20 @@
         </div>
       </UCard>
 
+      <!-- 同步文件索引 -->
+      <UCard>
+        <template #header><h2 class="font-semibold">{{ $t('app.fileIndex') }}</h2></template>
+        <div class="space-y-2 text-sm">
+          <p class="text-gray-500">{{ $t('app.fileIndexHint') }}</p>
+          <UButton
+            icon="i-lucide-refresh-cw"
+            color="primary"
+            :loading="syncing"
+            @click="syncIndex"
+          >{{ $t('app.syncFileIndex') }}</UButton>
+        </div>
+      </UCard>
+
       <!-- 语言 -->
       <UCard>
         <template #header><h2 class="font-semibold">Language / 言語</h2></template>
@@ -67,7 +81,7 @@
 definePageMeta({ middleware: 'auth' })
 
 const { user } = useAuth()
-const { locale, locales, setLocale } = useI18n()
+const { locale, locales, setLocale, t } = useI18n()
 const currentLocale = computed(() => locale.value)
 
 // Upload settings
@@ -89,6 +103,20 @@ watch(chunkSize, (val) => {
 
 async function switchLocale(code: string) {
   await setLocale(code)
+}
+
+// 同步文件索引
+const { fullSync, ready } = useFileIndex()
+const syncing = ref(false)
+async function syncIndex() {
+  syncing.value = true
+  try {
+    await fullSync()
+    const toast = useToast()
+    toast.add({ title: t('app.indexSynced'), icon: 'i-lucide-circle-check', duration: 2500 })
+  } finally {
+    syncing.value = false
+  }
 }
 
 function formatSize(bytes: number): string {

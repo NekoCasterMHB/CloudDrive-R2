@@ -4,7 +4,7 @@ const toast = useToast()
 const emit = defineEmits<{ close: [] }>()
 
 const props = defineProps<{
-  onRestored?: () => void
+  onRestored?: (record?: any) => void
 }>()
 
 const viewMode = ref<'grid' | 'list'>('list')
@@ -39,10 +39,10 @@ function formatSize(bytes?: number): string {
 
 async function restoreItem(item: any) {
   try {
-    await $fetch(`/api/trash/${item.id}/restore`, { method: 'POST' })
+    const record = await $fetch(`/api/trash/${item.id}/restore`, { method: 'POST' })
     toast.add({ title: `${item.name} ${t('app.restore')}`, icon: 'i-lucide-rotate-ccw', duration: 2000 })
     loadTrash()
-    props.onRestored?.()
+    props.onRestored?.(record)
   } catch { toast.add({ title: t('app.failed'), color: 'error', icon: 'i-lucide-circle-x', duration: 3000 }) }
 }
 
