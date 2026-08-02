@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
   const request = new Request(url, {
     method: event.method,
     headers: getRequestHeaders(event) as HeadersInit,
-    body: event.method !== 'GET' && event.method !== 'HEAD' ? await readRawBody(event) : undefined,
+    body: event.method !== 'GET' && event.method !== 'HEAD' ? await readRawBody(event) : undefined
   })
   return auth.handler(request)
 })

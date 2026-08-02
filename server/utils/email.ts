@@ -5,6 +5,8 @@
  * 本地开发：Cloudflare REST API → real email
  * devConsoleEmail=true：打印到终端（不实际发送）
  */
+import { tryGetBindings } from './bindings'
+
 const HTML_TEMPLATE = (otp: string) => `
 <div style="font-family:sans-serif;max-width:400px;margin:0 auto">
   <h2>CloudDrive 登录验证码</h2>
@@ -17,15 +19,15 @@ const HTML_TEMPLATE = (otp: string) => `
 export async function sendOTPEmail(to: string, otp: string) {
   const config = useRuntimeConfig()
 
-  // 生产环境：Cloudflare Workers Email binding
-  const cfEnv = (globalThis as any).__cfEnv
+  // 生产环境：Cloudflare Workers Email binding（send_email）
+  const cfEnv = tryGetBindings()
   if (cfEnv?.EMAIL) {
     await cfEnv.EMAIL.send({
       to,
       from: `${config.email.fromName} <${config.email.from}>`,
       subject: `CloudDrive 登录验证码: ${otp}`,
       html: HTML_TEMPLATE(otp),
-      text: `您的 CloudDrive 登录验证码是: ${otp}。5分钟内有效。`,
+      text: `您的 CloudDrive 登录验证码是: ${otp}。5分钟内有效。`
     })
     return
   }
@@ -41,24 +43,24 @@ export async function sendOTPEmail(to: string, otp: string) {
     try {
       const res = await $fetch<{
         success: boolean
-        errors?: { code: number; message: string }[]
-        result?: { delivered?: string[]; permanent_bounces?: string[] }
+        errors?: { code: number, message: string }[]
+        result?: { delivered?: string[], permanent_bounces?: string[] }
       }>(
         `https://api.cloudflare.com/client/v4/accounts/${config.cfAccountId}/email/sending/send`,
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${config.cfApiTokenEmail}`,
-            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.cfApiTokenEmail}`,
+            'Content-Type': 'application/json'
           },
           body: {
-            to,                                    // 纯邮箱字符串
-            from: config.email.from,               // 纯邮箱字符串
+            to, // 纯邮箱字符串
+            from: config.email.from, // 纯邮箱字符串
             subject: `CloudDrive 登录验证码: ${otp}`,
             html: HTML_TEMPLATE(otp),
-            text: `您的 CloudDrive 登录验证码是: ${otp}。5分钟内有效。`,
-          },
-        },
+            text: `您的 CloudDrive 登录验证码是: ${otp}。5分钟内有效。`
+          }
+        }
       )
 
       if (!res.success) {
@@ -73,8 +75,7 @@ export async function sendOTPEmail(to: string, otp: string) {
 
       console.log(`[Email] ✅ 验证码已发送至 ${to}`)
       return
-    }
-    catch (e: any) {
+    } catch (e: any) {
       console.warn(`[Email] 发送失败: ${e.message}`)
       console.warn('[Email] 请确认: 1) 域名已验证 2) Token 有 Email Sending:Edit 权限')
     }
@@ -91,6 +92,6 @@ function printOTP(to: string, otp: string) {
     `║  📧 验证码发送给: ${to.padEnd(20)} ║`,
     `║  🔑 验证码: ${otp.padEnd(22)} ║`,
     '╚══════════════════════════════════════╝',
-    '',
+    ''
   ].join('\n'))
 }

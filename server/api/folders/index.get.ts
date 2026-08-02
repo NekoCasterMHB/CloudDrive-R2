@@ -7,7 +7,7 @@ export default defineEventHandler(async (event) => {
   const parentId = (query.parentId as string) || null
 
   // TODO: 从 session 获取真实 userId
-  const userId = 'mock-user-id'
+  const userId = await requireUserId(event)
 
   const folderList = await db.select().from(foldersTable).where(
     parentId

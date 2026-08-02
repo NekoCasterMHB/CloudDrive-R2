@@ -6,8 +6,11 @@ export function useEmailHistory() {
 
   function getAll(): string[] {
     if (import.meta.server) return []
-    try { return JSON.parse(localStorage.getItem(KEY) || '[]') }
-    catch { return [] }
+    try {
+      return JSON.parse(localStorage.getItem(KEY) || '[]')
+    } catch {
+      return []
+    }
   }
 
   /** 添加邮箱（去重，最新的放前面，最多保存 10 个） */

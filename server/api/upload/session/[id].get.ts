@@ -5,7 +5,7 @@ import { eq, and } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
   const sessionId = getRouterParam(event, 'id')
-  const userId = 'mock-user-id'
+  const userId = await requireUserId(event)
 
   const session = await db.select().from(uploadSessions).where(
     and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, userId))

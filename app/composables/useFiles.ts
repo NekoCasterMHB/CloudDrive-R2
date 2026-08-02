@@ -23,11 +23,9 @@ export function useFiles() {
       const data = await $fetch<DirectoryListing>(url)
       folders.value = data.folders || []
       files.value = data.files || []
-    }
-    catch (e) {
+    } catch (e) {
       console.error('[Files] loadFolder error:', e)
-    }
-    finally {
+    } finally {
       loading.value = false
       loaded.value = true
     }

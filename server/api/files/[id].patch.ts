@@ -6,7 +6,7 @@ import { eq, and, isNull, ne } from 'drizzle-orm'
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
   const { name } = await readBody(event)
-  const userId = 'mock-user-id'
+  const userId = await requireUserId(event)
 
   if (!name?.trim()) throw createError({ statusCode: 400, message: '文件名不能为空' })
   if (name.includes('/')) throw createError({ statusCode: 400, message: '名称不能包含 / 字符' })

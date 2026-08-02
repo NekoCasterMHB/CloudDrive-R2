@@ -2,6 +2,7 @@
  * 文件上传 composable
  * 支持小文件直传 / 大文件分片上传
  */
+import { useFileCache } from './useFileCache'
 
 export interface UploadTask {
   id: string
@@ -26,9 +27,11 @@ export interface StoredTask {
   time: number
 }
 
-export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { title: string; color?: string; icon?: string }) => void) {
+export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { title: string, color?: string, icon?: string }) => void) {
   const tasks = ref<UploadTask[]>([])
   const history = ref<StoredTask[]>(loadHistory())
+  // 用于上传完成后将文件写入本地缓存（缩略图显示"已缓存"绿点）
+  const { cacheFile } = useFileCache()
   const maxConcurrent = 2
   // 任务级 AbortController（暂停/取消）
   const taskControllers = new Map<string, AbortController>()
@@ -40,8 +43,9 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
         const raw = localStorage.getItem('upload_history')
         if (raw) items = JSON.parse(raw)
       }
+    } catch {
+      // localStorage 数据损坏时忽略
     }
-    catch {}
     return items
   }
 
@@ -59,7 +63,7 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
         folderId,
         type: 'upload',
         status: 'pending',
-        progress: 0,
+        progress: 0
       })
     }
     processQueue()
@@ -105,8 +109,8 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
             filename: task.file.name,
             size: task.file.size,
             contentType: task.file.type,
-            folderId: task.folderId,
-          },
+            folderId: task.folderId
+          }
         })
         sessionId = init.sessionId
         partSize = init.partSize
@@ -121,7 +125,9 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
           const uploadedChunks = Array.from(done).length
           task.uploadedBytes = Math.min(uploadedChunks * partSize, task.file.size)
           task.progress = Math.min(99, Math.round((task.uploadedBytes / task.file.size) * 100))
-        } catch {}
+        } catch {
+          // 查询会话失败时忽略（继续从 0 开始）
+        }
       }
 
       const totalParts = Math.max(1, Math.ceil(task.file.size / partSize))
@@ -132,46 +138,66 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
         try {
           const sess = await $fetch<any>(`/api/upload/session/${sessionId}`)
           doneParts = new Set((sess.completedParts || []).map((p: any) => p.partNumber))
-        } catch {}
+        } catch {
+          // 查询已完成分片失败时忽略（重新上传）
+        }
       }
 
-      // Step 2: 并发上传分片（PUT 直传 R2）
-      const uploadPart = async (partNumber: number) => {
+      // Step 2: 并发上传分片（POST 到 Worker，经 R2 binding 代理上传）
+      // 用 XMLHttpRequest 获取真实上传进度：fetch 无法追踪上传进度，
+      // 小文件（单分片）之前会 0 → 99 跳变
+      const uploadPart = (partNumber: number) => new Promise<any>((resolve, reject) => {
         const start = (partNumber - 1) * partSize
         const end = Math.min(start + partSize, task.file.size)
         const chunk = task.file.slice(start, end, task.file.type)
 
-        const { signedUrl } = await $fetch<any>('/api/upload/part-url', {
-          method: 'POST',
-          body: { sessionId, partNumber },
-        })
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', `/api/upload/part?sessionId=${encodeURIComponent(sessionId!)}&partNumber=${partNumber}`)
+        xhr.responseType = 'json'
 
-        const putRes = await fetch(signedUrl, {
-          method: 'PUT',
-          body: chunk,
-          headers: { 'Content-Type': task.file.type },
-          signal: controller.signal,
-        })
-        if (!putRes.ok) throw new Error(`分片 ${partNumber} 上传失败 (${putRes.status})`)
+        const updateProgress = (partSent: number) => {
+          const totalUploaded = Math.min(start + partSent, task.file.size)
+          task.uploadedBytes = Math.max(task.uploadedBytes || 0, totalUploaded)
+          task.progress = Math.min(99, Math.round((task.uploadedBytes / task.file.size) * 100))
+        }
 
-        const etag = (putRes.headers.get('ETag') || '').replace(/"/g, '')
-        await $fetch('/api/upload/part-complete', {
-          method: 'POST',
-          body: { sessionId, partNumber, etag, size: chunk.size },
-        })
+        // 分片开始发送时先给基线进度，避免长时间停在 0
+        xhr.upload.onloadstart = () => updateProgress(0)
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) updateProgress(ev.loaded)
+        }
 
-        // 更新进度
-        const uploaded = Math.min((partNumber - 1) * partSize + chunk.size, task.file.size)
-        task.uploadedBytes = Math.max(task.uploadedBytes || 0, uploaded)
-        task.progress = Math.min(99, Math.round((task.uploadedBytes / task.file.size) * 100))
-      }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response)
+          else reject(new Error(`分片 ${partNumber} 上传失败: ${xhr.status}`))
+        }
+        xhr.onerror = () => reject(new Error(`分片 ${partNumber} 网络错误`))
+        xhr.onabort = () => reject(new Error('aborted'))
+        const onAbort = () => xhr.abort()
+        controller.signal.addEventListener('abort', onAbort, { once: true })
+
+        xhr.send(chunk)
+      })
 
       const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1).filter(p => !doneParts.has(p))
       const concurrency = getConcurrency(task.file.size)
       for (let i = 0; i < partNumbers.length; i += concurrency) {
         if (controller.signal.aborted) break
         const batch = partNumbers.slice(i, i + concurrency)
-        await Promise.all(batch.map(uploadPart))
+        await Promise.all(batch.map(async (partNumber) => {
+          const partRes = await uploadPart(partNumber)
+          if (!partRes?.etag) throw new Error(`分片 ${partNumber} 上传失败`)
+          const etag = (partRes.etag || '').replace(/"/g, '')
+          await $fetch('/api/upload/part-complete', {
+            method: 'POST',
+            body: {
+              sessionId,
+              partNumber,
+              etag,
+              size: Math.min(partSize, task.file.size - (partNumber - 1) * partSize)
+            }
+          })
+        }))
       }
 
       if (controller.signal.aborted) return // 被暂停/取消
@@ -179,10 +205,24 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
       // Step 3: 完成上传
       const uploadRes = await $fetch<any>('/api/upload/complete', {
         method: 'POST',
-        body: { sessionId },
+        body: { sessionId }
       })
       task.progress = 100
       task.status = 'done'
+      // 上传完成后立即将文件写入本地缓存（受缓存设置约束：类型 + 最大容量），
+      // 这样刚上传的文件缩略图能立刻显示"已缓存"绿点；缓存失败不影响上传结果
+      if (uploadRes?.id) {
+        try {
+          await cacheFile({
+            id: uploadRes.id,
+            name: task.file.name,
+            contentType: task.file.type || uploadRes.contentType || 'application/octet-stream',
+            blob: task.file
+          })
+        } catch {
+          // 忽略缓存写入失败
+        }
+      }
       taskControllers.delete(task.id)
       history.value.unshift({
         id: task.id,
@@ -191,14 +231,13 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
         folderId: task.folderId,
         type: task.type,
         status: 'done',
-        time: Date.now(),
+        time: Date.now()
       })
       if (history.value.length > 100) history.value.pop()
       saveHistory()
       onNotify?.({ title: `${task.file.name} 上传完成`, icon: 'i-lucide-circle-check' })
       onDone?.(uploadRes)
-    }
-    catch (e: any) {
+    } catch (e: any) {
       taskControllers.delete(task.id)
       // 被暂停/取消时静默处理
       if (controller.signal.aborted && task.status !== 'done') {
@@ -216,7 +255,7 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
         type: task.type,
         status: 'error',
         error: e?.message || 'Upload failed',
-        time: Date.now(),
+        time: Date.now()
       })
       if (history.value.length > 100) history.value.pop()
       saveHistory()
@@ -237,8 +276,7 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
       task.status = 'paused'
       onNotify?.({ title: `${task.file.name} 已暂停`, icon: 'i-lucide-pause' })
       processQueue()
-    }
-    else if (task.status === 'paused') {
+    } else if (task.status === 'paused') {
       task.status = 'uploading'
       onNotify?.({ title: `${task.file.name} 已继续`, icon: 'i-lucide-play' })
       uploadFile(task)
@@ -264,7 +302,7 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
       folderId: task.folderId,
       type: task.type,
       status: 'cancelled',
-      time: Date.now(),
+      time: Date.now()
     })
     if (history.value.length > 100) history.value.pop()
     saveHistory()

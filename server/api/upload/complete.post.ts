@@ -8,7 +8,7 @@ export default defineEventHandler(async (event) => {
   const { sessionId } = await readBody(event)
   if (!sessionId) throw createError({ statusCode: 400, message: '缺少参数' })
 
-  const userId = 'mock-user-id'
+  const userId = await requireUserId(event)
   const session = await db.select().from(uploadSessions).where(
     and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, userId))
   ).limit(1).then(r => r[0])
@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
   await r2CompleteMultipartUpload(
     session.uploadId,
     session.objectKey,
-    parts.map(p => ({ partNumber: p.partNumber, etag: p.etag || '' })),
+    parts.map(p => ({ partNumber: p.partNumber, etag: p.etag || '' }))
   )
 
   // 写入文件记录
@@ -40,7 +40,7 @@ export default defineEventHandler(async (event) => {
     contentType: session.contentType,
     etag: parts[0].etag || '',
     createdAt: now,
-    updatedAt: now,
+    updatedAt: now
   }).run()
 
   // 更新会话状态
@@ -54,6 +54,6 @@ export default defineEventHandler(async (event) => {
     contentType: session.contentType,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    status: 'done',
+    status: 'done'
   }
 })

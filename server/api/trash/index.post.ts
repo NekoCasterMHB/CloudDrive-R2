@@ -10,7 +10,7 @@ export default defineEventHandler(async (event) => {
   const { eq } = await import('drizzle-orm')
   const crypto = await import('node:crypto')
 
-  const userId = 'mock-user-id'
+  const userId = await requireUserId(event)
   const now = new Date()
   const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
 
@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
       deletedAt: now,
       expiresAt,
       isFolder: false,
-      objectKey: row.objectKey,
+      objectKey: row.objectKey
     }
     console.log('[trash POST] insert value:', JSON.stringify(insertVal, (k, v) => v instanceof Date ? v.toISOString() : v))
     await db.insert(trash).values(insertVal)
@@ -49,7 +49,7 @@ export default defineEventHandler(async (event) => {
       size: 0,
       deletedAt: now,
       expiresAt,
-      isFolder: true,
+      isFolder: true
     }
     console.log('[trash POST] insert value:', JSON.stringify(insertVal, (k, v) => v instanceof Date ? v.toISOString() : v))
     await db.insert(trash).values(insertVal)

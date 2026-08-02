@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
       parentId,
       name: row.name,
       createdAt: new Date(),
-      updatedAt: new Date(),
+      updatedAt: new Date()
     })
     await db.delete(trash).where(eq(trash.id, id))
     return { id: newId, name: row.name, parentId, updatedAt: Date.now(), isFolder: true, type: 'folder' }
@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
       size: row.size,
       contentType: 'application/octet-stream',
       createdAt: new Date(),
-      updatedAt: new Date(),
+      updatedAt: new Date()
     })
     await db.delete(trash).where(eq(trash.id, id))
     return { id: newId, filename: row.name, folderId: parentId, size: row.size, updatedAt: Date.now(), type: 'file' }

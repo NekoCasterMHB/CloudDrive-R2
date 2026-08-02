@@ -6,7 +6,7 @@ import { eq, and, isNull, inArray } from 'drizzle-orm'
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const { items, targetFolderId } = body
-  const userId = 'mock-user-id'
+  const userId = await requireUserId(event)
   const targetId = targetFolderId || null
 
   if (!Array.isArray(items) || items.length === 0) {

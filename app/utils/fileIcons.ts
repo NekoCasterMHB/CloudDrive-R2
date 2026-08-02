@@ -70,11 +70,11 @@ export const FILE_ICON_MAP: Record<string, string> = {
   '3ds': 'i-lucide-cuboid', 'blend': 'i-lucide-cuboid',
   // 数据库
   'db': 'i-lucide-database', 'sqlite': 'i-lucide-database',
-  'sqlite3': 'i-lucide-database', 'mdb': 'i-lucide-database',
+  'sqlite3': 'i-lucide-database', 'mdb': 'i-lucide-database'
 }
 
 /** 将图标分类 */
-export const ICON_CATEGORIES: Record<string, { label: string; icon: string; exts: string[] }> = {
+export const ICON_CATEGORIES: Record<string, { label: string, icon: string, exts: string[] }> = {
   image: { label: 'Image', icon: 'i-lucide-image', exts: ['jpg', 'png', 'gif', 'svg', 'webp'] },
   video: { label: 'Video', icon: 'i-lucide-film', exts: ['mp4', 'mov', 'avi', 'mkv', 'webm'] },
   audio: { label: 'Audio', icon: 'i-lucide-music', exts: ['mp3', 'wav', 'flac', 'aac', 'ogg'] },
@@ -86,7 +86,7 @@ export const ICON_CATEGORIES: Record<string, { label: string; icon: string; exts
   exe: { label: 'Executable', icon: 'i-lucide-package', exts: ['exe', 'apk', 'dmg'] },
   font: { label: 'Font', icon: 'i-lucide-type', exts: ['ttf', 'otf', 'woff'] },
   cad: { label: 'CAD / 3D', icon: 'i-lucide-cuboid', exts: ['dwg', 'stl', 'obj', 'blend'] },
-  db: { label: 'Database', icon: 'i-lucide-database', exts: ['db', 'sqlite', 'mdb'] },
+  db: { label: 'Database', icon: 'i-lucide-database', exts: ['db', 'sqlite', 'mdb'] }
 }
 
 /** 根据文件名返回对应 Lucide 图标 */

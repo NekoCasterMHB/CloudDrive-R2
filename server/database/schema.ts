@@ -7,7 +7,7 @@ export const folders = sqliteTable('folders', {
   parentId: text('parent_id'),
   name: text('name').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
 })
 
 // 文件
@@ -22,7 +22,7 @@ export const files = sqliteTable('files', {
   etag: text('etag'),
   thumbnailKey: text('thumbnail_key'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
 })
 
 // 回收站
@@ -37,7 +37,7 @@ export const trash = sqliteTable('trash', {
   deletedAt: integer('deleted_at', { mode: 'timestamp' }).notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
   isFolder: integer('is_folder', { mode: 'boolean' }).notNull().default(false),
-  objectKey: text('object_key'),
+  objectKey: text('object_key')
 })
 
 // 上传会话表（R2 Multipart Upload 会话，支持断点续传）
@@ -51,7 +51,7 @@ export const uploadSessions = sqliteTable('upload_sessions', {
   fileSize: integer('file_size').notNull(),
   contentType: text('content_type').notNull().default('application/octet-stream'),
   status: text('status').notNull().default('pending'), // pending | uploading | completed | failed | cancelled
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
 })
 
 // 上传分片表
@@ -61,5 +61,25 @@ export const uploadParts = sqliteTable('upload_parts', {
   partNumber: integer('part_number').notNull(),
   etag: text('etag'),
   size: integer('size').notNull().default(0),
-  status: text('status').notNull().default('pending'), // pending | uploading | completed | failed
+  status: text('status').notNull().default('pending') // pending | uploading | completed | failed
+})
+
+// 用户设置（key-value，value 为 JSON 字符串，key 与 user_id 组合唯一）
+export const userSettings = sqliteTable('user_settings', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  key: text('key').notNull(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
+})
+
+// 分享（支持文件/文件夹混选，items 为 JSON：[{ id, type, name }]）
+export const shares = sqliteTable('shares', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  token: text('token').notNull(), // 唯一分享码
+  password: text('password'), // 密码哈希（可选，null 表示无密码）
+  expiresAt: integer('expires_at', { mode: 'timestamp' }), // 可选，null 表示永久
+  items: text('items').notNull(), // JSON 字符串
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull()
 })

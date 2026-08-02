@@ -5,8 +5,10 @@ export default defineConfig({
   schema: './server/database/schema.ts',
   out: './drizzle',
   dbCredentials: {
-    // D1 数据库 ID（从 Cloudflare Dashboard 获取）
-    // 迁移时使用: pnpm wrangler d1 execute clouddrive-db --file=./drizzle/xxx.sql
-    url: './.data/auth.db',
-  },
+    // 完整数据库初始化脚本：server/db/init.sql（整合 migrations/sqlite 0000~0005）
+    //   - 本地 D1：npx wrangler d1 execute clouddrive-db --local --file=server/db/init.sql
+    //   - 线上 D1：npx wrangler d1 execute clouddrive-db --remote --file=server/db/init.sql
+    // drizzle-kit 仅用于从 schema 生成增量 SQL（pnpm db:generate → drizzle/xxx.sql）
+    url: './.data/auth.db'
+  }
 })

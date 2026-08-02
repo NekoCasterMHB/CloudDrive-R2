@@ -1,4 +1,6 @@
 // DELETE /api/trash/:id — 永久删除回收站记录
+import { r2Delete } from '../../../utils/r2'
+
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
 
@@ -11,7 +13,11 @@ export default defineEventHandler(async (event) => {
 
   // 如果有 objectKey，也从 R2 删除文件内容
   if (row.objectKey) {
-    try { await r2Delete(row.objectKey) } catch {}
+    try {
+      await r2Delete(row.objectKey)
+    } catch {
+      // R2 对象可能已不存在，忽略
+    }
   }
 
   await db.delete(trash).where(eq(trash.id, id))

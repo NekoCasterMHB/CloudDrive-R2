@@ -15,8 +15,6 @@
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1096.0",
-    "@aws-sdk/s3-request-presigner": "^3.1096.0",
     "@iconify-json/circle-flags": "^1.2.10",
     "@iconify-json/flag": "^1.2.12",
     "@iconify-json/lucide": "^1.2.120",
@@ -30,6 +28,7 @@
     "@vite-pwa/nuxt": "^1.1.1",
     "better-auth": "1.6.25",
     "drizzle-orm": "^0.45.2",
+    "jszip": "^3.10.1",
     "nuxt": "^4.5.1",
     "pdfjs-dist": "^6.1.200",
     "photoswipe": "^5.4.4",
@@ -40,7 +39,8 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.8.0",
     "typescript": "^6.0.3",
-    "vue-tsc": "^3.3.8"
+    "vue-tsc": "^3.3.8",
+    "wrangler": "^4.118.0"
   },
-  "packageManager": "pnpm@11.17.0"
+  "packageManager": "pnpm@11.18.0"
 }

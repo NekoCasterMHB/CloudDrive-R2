@@ -7,7 +7,7 @@ export default defineEventHandler(async (event) => {
   const { sessionId, partNumber, etag, size } = await readBody(event)
   if (!sessionId || !partNumber) throw createError({ statusCode: 400, message: '缺少参数' })
 
-  const userId = 'mock-user-id'
+  const userId = await requireUserId(event)
   const session = await db.select().from(uploadSessions).where(
     and(eq(uploadSessions.id, sessionId), eq(uploadSessions.userId, userId))
   ).limit(1).then(r => r[0])
@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
       partNumber,
       etag,
       size: size ?? 0,
-      status: 'completed',
+      status: 'completed'
     }).run()
   }
 

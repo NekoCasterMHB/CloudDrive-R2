@@ -7,7 +7,7 @@ export const folders = sqliteTable('folders', {
   parentId: text('parent_id'),
   name: text('name').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
 })
 
 // 文件
@@ -22,5 +22,5 @@ export const files = sqliteTable('files', {
   etag: text('etag'),
   thumbnailKey: text('thumbnail_key'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
 })

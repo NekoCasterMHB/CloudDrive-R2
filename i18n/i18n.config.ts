@@ -8,6 +8,6 @@ export default defineI18nConfig(() => ({
   messages: {
     'zh-CN': zhCN,
     en,
-    ja,
-  },
+    ja
+  }
 }))

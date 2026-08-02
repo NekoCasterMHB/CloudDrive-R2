@@ -10,18 +10,23 @@ export const auth = betterAuth({
 
   database: drizzleAdapter(db, {
     provider: 'sqlite',
-    schema: authSchema,
+    schema: authSchema
   }),
 
   plugins: [
     emailOTP({
-      async sendVerificationOTP({ email, otp, type }) {
+      async sendVerificationOTP({ email, otp }) {
         await sendOTPEmail(email, otp)
-      },
-    }),
+      }
+    })
   ],
 
-  emailVerification: {
-    autoSignInAfterVerification: true,
+  // 邮箱 + 密码登录（提供 sign-in/email 等内置端点，供用户名密码登录复用）
+  emailAndPassword: {
+    enabled: true
   },
+
+  emailVerification: {
+    autoSignInAfterVerification: true
+  }
 })

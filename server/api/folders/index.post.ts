@@ -6,7 +6,7 @@ export default defineEventHandler(async (event) => {
   const { name, parentId } = await readBody(event)
   if (!name?.trim()) throw createError({ statusCode: 400, message: '文件夹名称不能为空' })
 
-  const userId = 'mock-user-id'
+  const userId = await requireUserId(event)
   const id = crypto.randomUUID()
   const now = Date.now()
 
@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
 
   await db.insert(foldersTable).values({
     id, userId, parentId: parentId ?? null, name,
-    createdAt: new Date(now), updatedAt: new Date(now),
+    createdAt: new Date(now), updatedAt: new Date(now)
   }).run()
 
   return { id, name, parentId: parentId ?? null, createdAt: now }

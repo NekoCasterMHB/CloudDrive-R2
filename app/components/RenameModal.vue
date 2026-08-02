@@ -13,7 +13,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   confirmLabel: undefined,
   cancelLabel: undefined,
-  onConfirm: undefined,
+  onConfirm: undefined
 })
 
 const newName = ref(props.initialName)
@@ -64,8 +64,18 @@ async function submit() {
     </template>
     <template #footer>
       <div class="flex justify-end gap-2 w-full">
-        <UButton color="neutral" variant="outline" :label="cancelLabel || t('app.cancel')" @click="emit('close', null)" />
-        <UButton color="primary" :label="confirmLabel || t('app.confirm')" loading-auto @click="submit" />
+        <UButton
+          color="neutral"
+          variant="outline"
+          :label="cancelLabel || t('app.cancel')"
+          @click="emit('close', null)"
+        />
+        <UButton
+          color="primary"
+          :label="confirmLabel || t('app.confirm')"
+          loading-auto
+          @click="submit"
+        />
       </div>
     </template>
   </UModal>

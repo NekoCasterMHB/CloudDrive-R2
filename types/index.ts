@@ -27,6 +27,13 @@ export interface FileInfo {
   createdAt: number
 }
 
+// ─── 分享 ───
+export interface ShareItem {
+  id: string
+  type: 'file' | 'folder'
+  name: string
+}
+
 // ─── 认证 ───
 export interface AuthResponse {
   accessToken: string

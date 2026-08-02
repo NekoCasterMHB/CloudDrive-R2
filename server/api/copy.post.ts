@@ -1,15 +1,13 @@
 // POST /api/copy — 复制文件/文件夹到目标文件夹（文件夹含递归复制全部子内容，R2 对象浅复制新 key）
-import { S3Client, CopyObjectCommand } from '@aws-sdk/client-s3'
 import { db } from '@nuxthub/db'
 import { files as filesTable, folders as foldersTable } from '../database/schema'
 import { eq, and, isNull } from 'drizzle-orm'
-
-const BUCKET = 'clouddrive-files'
+import { r2Copy } from '../utils/r2'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const { items, targetFolderId } = body
-  const userId = 'mock-user-id'
+  const userId = await requireUserId(event)
   const targetId = targetFolderId || null
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -60,7 +58,10 @@ export default defineEventHandler(async (event) => {
   const usedFileNames = new Set(targetFiles.map(f => f.filename))
 
   function uniqueName(base: string, used: Set<string>): string {
-    if (!used.has(base)) { used.add(base); return base }
+    if (!used.has(base)) {
+      used.add(base)
+      return base
+    }
     const dot = base.lastIndexOf('.')
     const name = dot > 0 ? base.slice(0, dot) : base
     const ext = dot > 0 ? base.slice(dot) : ''
@@ -75,15 +76,6 @@ export default defineEventHandler(async (event) => {
   const newFolders: any[] = []
   const newFiles: any[] = []
   const folderIdMap = new Map<string, string>() // 旧id -> 新id
-
-  const s3 = new S3Client({
-    region: 'auto',
-    endpoint: `https://${process.env.NUXT_HUB_CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: process.env.NUXT_R2_ACCESS_KEY_ID || '',
-      secretAccessKey: process.env.NUXT_R2_SECRET_ACCESS_KEY || '',
-    },
-  })
 
   // 递归复制文件夹
   function cloneFolder(oldId: string, newParentId: string | null) {
@@ -108,7 +100,7 @@ export default defineEventHandler(async (event) => {
 
   // 复制文件：顶层源文件 + 被复制文件夹内的文件
   const filesToCopy = allFiles.filter(f =>
-    srcFileIds.includes(f.id) || (f.folderId && copyFolderIds.has(f.folderId)),
+    srcFileIds.includes(f.id) || (f.folderId && copyFolderIds.has(f.folderId))
   )
 
   for (const old of filesToCopy) {
@@ -122,13 +114,11 @@ export default defineEventHandler(async (event) => {
     const newId = crypto.randomUUID()
     const newObjectKey = `${userId}/${newId}/${old.filename}`
     try {
-      await s3.send(new CopyObjectCommand({
-        Bucket: BUCKET,
-        Key: newObjectKey,
-        CopySource: `${BUCKET}/${encodeURIComponent(old.objectKey)}`,
-      }))
-    } catch {
+      // 通过 R2 binding 复制对象
+      await r2Copy(old.objectKey, newObjectKey, old.contentType)
+    } catch (e: any) {
       // R2 复制失败则不创建记录（跳过该文件）
+      console.error(`[copy] r2Copy 失败 ${old.objectKey} -> ${newObjectKey}:`, e?.message || e)
       continue
     }
     newFiles.push({
@@ -142,7 +132,7 @@ export default defineEventHandler(async (event) => {
       etag: old.etag,
       thumbnailKey: old.thumbnailKey,
       createdAt: now,
-      updatedAt: now,
+      updatedAt: now
     })
   }
 

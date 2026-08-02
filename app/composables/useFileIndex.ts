@@ -15,14 +15,26 @@ export interface IndexItem {
   size?: string
   rawSize?: number
   modified?: string
+  contentType?: string
   isImage?: boolean
 }
 
 const DB_NAME = 'clouddrive-index'
 const STORE_NAME = 'data'
-const KEY = 'items'
-const LAST_SYNC_KEY = 'last_full_sync'
+// 缓存 key 均按 userId 隔离，避免不同用户看到彼此的文件索引
+const LAST_SYNC_LS_PREFIX = 'file_index_last_sync_'
 const DB_VERSION = 2
+
+function loadLastSyncLs(key: string): number | null {
+  if (typeof localStorage === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(key)
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? n : null
+  } catch {
+    return null
+  }
+}
 
 let _dbPromise: Promise<IDBDatabase> | null = null
 let _loading: Promise<void> | null = null
@@ -64,11 +76,32 @@ function idbSet(key: string, value: unknown): Promise<void> {
 }
 
 export function useFileIndex() {
+  const { user } = useAuth()
+  // 按当前登录用户隔离索引缓存
+  const uid = computed(() => user.value?.id || 'anonymous')
+  const itemsKey = computed(() => `items:${uid.value}`)
+  const syncKey = computed(() => `last_full_sync:${uid.value}`)
+  const lastSyncLsKey = computed(() => `${LAST_SYNC_LS_PREFIX}${uid.value}`)
+
   const items = ref<IndexItem[]>([])
   const ready = ref(false)
   const loading = ref(false)
   const childrenMap = ref<Record<string, IndexItem[]>>({})
   const itemMap = ref<Record<string, IndexItem>>({})
+  // 上次全量同步时间（localStorage 持久化）
+  const lastSyncAt = ref<number | null>(loadLastSyncLs(lastSyncLsKey.value))
+
+  // 用户切换/登录完成后重置本地索引并重新同步
+  // （解决 session 异步加载时 onMounted 触发同步失败导致的空索引）
+  watch(uid, (newUid, oldUid) => {
+    if (oldUid === undefined || oldUid === newUid) return
+    items.value = []
+    ready.value = false
+    childrenMap.value = {}
+    itemMap.value = {}
+    lastSyncAt.value = loadLastSyncLs(lastSyncLsKey.value)
+    loadAll()
+  })
 
   function buildMaps() {
     const cm: Record<string, IndexItem[]> = {}
@@ -86,44 +119,46 @@ export function useFileIndex() {
   async function persist() {
     // toRaw 只解除顶层数组，元素仍是 Vue 响应式 Proxy，IndexedDB 无法结构化克隆
     // 用 JSON 序列化彻底剥离 proxy 与特殊类型，保证可克隆
-    await idbSet(KEY, JSON.parse(JSON.stringify(toRaw(items.value))))
+    await idbSet(itemsKey.value, JSON.parse(JSON.stringify(toRaw(items.value))))
   }
 
   async function loadFromIndexedDB(): Promise<boolean> {
     try {
-      const data = await idbGet<IndexItem[]>(KEY)
+      const data = await idbGet<IndexItem[]>(itemsKey.value)
       if (Array.isArray(data)) {
         items.value = data
         buildMaps()
         return true
       }
-    } catch {}
+    } catch {
+      // IndexedDB 读取失败时视为无本地缓存
+    }
     return false
   }
 
   function toIndexItem(raw: any): IndexItem {
     const isFile = raw.filename !== undefined
     const ext = isFile ? (raw.filename.split('.').pop()?.toLowerCase() || '') : ''
-    const IMAGE_EXTS = ['jpg','jpeg','png','gif','webp','svg','bmp','ico','avif','heic','heif','tiff','tif','raw','psd']
+    const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'heic', 'heif', 'tiff', 'tif', 'raw', 'psd']
     const fileIcon = (name: string): string => {
       const e = name.split('.').pop()?.toLowerCase() || ''
       const MAP: Record<string, string> = {
-        jpg:'i-lucide-image',jpeg:'i-lucide-image',png:'i-lucide-image',gif:'i-lucide-image',webp:'i-lucide-image',svg:'i-lucide-image',bmp:'i-lucide-image',ico:'i-lucide-image',avif:'i-lucide-image',heic:'i-lucide-image',heif:'i-lucide-image',tiff:'i-lucide-image',tif:'i-lucide-image',raw:'i-lucide-image',psd:'i-lucide-image',
-        mp4:'i-lucide-film',mov:'i-lucide-film',avi:'i-lucide-film',mkv:'i-lucide-film',webm:'i-lucide-film',mp3:'i-lucide-music',wav:'i-lucide-music',flac:'i-lucide-music',aac:'i-lucide-music',ogg:'i-lucide-music',
-        zip:'i-lucide-file-archive',rar:'i-lucide-file-archive','7z':'i-lucide-file-archive',tar:'i-lucide-file-archive',gz:'i-lucide-file-archive',
-        pdf:'i-lucide-file-text',doc:'i-lucide-file-type',docx:'i-lucide-file-type',txt:'i-lucide-file-text',md:'i-lucide-file-text',
-        xls:'i-lucide-file-spreadsheet',xlsx:'i-lucide-file-spreadsheet',csv:'i-lucide-file-spreadsheet',
-        ppt:'i-lucide-presentation',pptx:'i-lucide-presentation',
-        js:'i-lucide-file-code',ts:'i-lucide-file-code',py:'i-lucide-file-code',html:'i-lucide-file-code',css:'i-lucide-file-code',json:'i-lucide-file-code',
-        exe:'i-lucide-package',apk:'i-lucide-package',dmg:'i-lucide-package',
-        ttf:'i-lucide-type',otf:'i-lucide-type',woff:'i-lucide-type',
-        db:'i-lucide-database',sqlite:'i-lucide-database',
+        'jpg': 'i-lucide-image', 'jpeg': 'i-lucide-image', 'png': 'i-lucide-image', 'gif': 'i-lucide-image', 'webp': 'i-lucide-image', 'svg': 'i-lucide-image', 'bmp': 'i-lucide-image', 'ico': 'i-lucide-image', 'avif': 'i-lucide-image', 'heic': 'i-lucide-image', 'heif': 'i-lucide-image', 'tiff': 'i-lucide-image', 'tif': 'i-lucide-image', 'raw': 'i-lucide-image', 'psd': 'i-lucide-image',
+        'mp4': 'i-lucide-film', 'mov': 'i-lucide-film', 'avi': 'i-lucide-film', 'mkv': 'i-lucide-film', 'webm': 'i-lucide-film', 'mp3': 'i-lucide-music', 'wav': 'i-lucide-music', 'flac': 'i-lucide-music', 'aac': 'i-lucide-music', 'ogg': 'i-lucide-music',
+        'zip': 'i-lucide-file-archive', 'rar': 'i-lucide-file-archive', '7z': 'i-lucide-file-archive', 'tar': 'i-lucide-file-archive', 'gz': 'i-lucide-file-archive',
+        'pdf': 'i-lucide-file-text', 'doc': 'i-lucide-file-type', 'docx': 'i-lucide-file-type', 'txt': 'i-lucide-file-text', 'md': 'i-lucide-file-text',
+        'xls': 'i-lucide-file-spreadsheet', 'xlsx': 'i-lucide-file-spreadsheet', 'csv': 'i-lucide-file-spreadsheet',
+        'ppt': 'i-lucide-presentation', 'pptx': 'i-lucide-presentation',
+        'js': 'i-lucide-file-code', 'ts': 'i-lucide-file-code', 'py': 'i-lucide-file-code', 'html': 'i-lucide-file-code', 'css': 'i-lucide-file-code', 'json': 'i-lucide-file-code',
+        'exe': 'i-lucide-package', 'apk': 'i-lucide-package', 'dmg': 'i-lucide-package',
+        'ttf': 'i-lucide-type', 'otf': 'i-lucide-type', 'woff': 'i-lucide-type',
+        'db': 'i-lucide-database', 'sqlite': 'i-lucide-database'
       }
       return MAP[e] || 'i-lucide-file'
     }
     const formatSize = (bytes?: number): string => {
       if (!bytes) return ''
-      const u = ['B','KB','MB','GB','TB']
+      const u = ['B', 'KB', 'MB', 'GB', 'TB']
       const i = Math.floor(Math.log(bytes) / Math.log(1024))
       return `${(bytes / 1024 ** i).toFixed(1)} ${u[i]}`
     }
@@ -137,14 +172,15 @@ export function useFileIndex() {
       size: isFile ? formatSize(raw.size) : undefined,
       rawSize: isFile ? raw.size : undefined,
       modified: raw.updatedAt || raw.createdAt,
-      isImage: isFile && IMAGE_EXTS.includes(ext),
+      contentType: isFile ? (raw.contentType || '') : undefined,
+      isImage: isFile && IMAGE_EXTS.includes(ext)
     }
   }
 
   /** 今天是否已经全量同步过 */
   async function hasSyncedToday(): Promise<boolean> {
     try {
-      const ts = await idbGet<number>(LAST_SYNC_KEY)
+      const ts = await idbGet<number>(syncKey.value)
       if (!ts) return false
       const d = new Date(ts)
       const now = new Date()
@@ -175,11 +211,19 @@ export function useFileIndex() {
         }
         items.value = [
           ...(res.folders || []).map(toIndexItem),
-          ...(res.files || []).map(toIndexItem),
+          ...(res.files || []).map(toIndexItem)
         ]
         buildMaps()
         await persist()
-        await idbSet(LAST_SYNC_KEY, Date.now())
+        const ts = Date.now()
+        await idbSet(syncKey.value, ts)
+        // 持久化到 localStorage 供设置页展示
+        try {
+          if (typeof localStorage !== 'undefined') localStorage.setItem(lastSyncLsKey.value, String(ts))
+        } catch {
+          // 存储失败时静默忽略
+        }
+        lastSyncAt.value = ts
         ready.value = true
       } finally {
         loading.value = false
@@ -226,5 +270,5 @@ export function useFileIndex() {
     persist()
   }
 
-  return { items, ready, loading, loadAll, fullSync, syncItem, getChildren, getItem, upsertItem, addItem, removeItem }
+  return { items, ready, loading, lastSyncAt, loadAll, fullSync, syncItem, getChildren, getItem, upsertItem, addItem, removeItem }
 }
