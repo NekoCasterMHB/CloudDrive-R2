@@ -210,7 +210,7 @@ const emailSuggestions = computed(() => suggestEmails(email.value))
 
 // 密码登录
 const loginMode = ref<'otp' | 'password'>('otp')
-const loginTabs = ref<TabsItem[]>([
+const loginTabs = computed<TabsItem[]>(() => [
   { label: t('app.loginWithCode'), value: 'otp' },
   { label: t('app.loginWithPassword'), value: 'password' }
 ])

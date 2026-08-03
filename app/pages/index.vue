@@ -140,27 +140,29 @@
       <!-- Search active -->
       <template v-if="showSearch">
         <div class="flex items-center gap-2 flex-1">
-          <UDropdownMenu :items="searchScopeMenuItems">
-            <UButton
-              variant="outline"
-              size="xs"
-              class="w-28 justify-between shrink-0"
-            >
-              {{ searchScopeLabel }}
-              <UIcon
-                name="i-lucide-chevron-down"
-                class="text-xs"
-              />
-            </UButton>
-          </UDropdownMenu>
-          <UInput
-            v-model="searchQuery"
-            :placeholder="$t('app.searchPlaceholder')"
-            icon="i-lucide-search"
-            size="sm"
-            class="flex-1"
-            autofocus
-          />
+          <UFieldGroup class="flex-1 min-w-0">
+            <UDropdownMenu :items="searchScopeMenuItems">
+              <UButton
+                variant="outline"
+                size="sm"
+                class="w-28 justify-between shrink-0"
+              >
+                {{ searchScopeLabel }}
+                <UIcon
+                  name="i-lucide-chevron-down"
+                  class="text-xs"
+                />
+              </UButton>
+            </UDropdownMenu>
+            <UInput
+              v-model="searchQuery"
+              :placeholder="$t('app.searchPlaceholder')"
+              icon="i-lucide-search"
+              size="sm"
+              class="flex-1 min-w-0"
+              autofocus
+            />
+          </UFieldGroup>
           <UButton
             icon="i-lucide-x"
             variant="ghost"
