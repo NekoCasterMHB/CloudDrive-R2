@@ -219,7 +219,7 @@
               v-if="pwdError"
               class="text-xs text-red-500"
             >
-              {{ pwdError }}
+              {{ pwdError.startsWith('app.') ? $t(pwdError) : pwdError }}
             </p>
             <p
               v-if="pwdSuccess"
@@ -661,11 +661,11 @@ async function handleChangePassword() {
   pwdError.value = ''
   pwdSuccess.value = false
   if (pwdNew.value.length < 6) {
-    pwdError.value = t('app.passwordTooShort')
+    pwdError.value = 'app.passwordTooShort'
     return
   }
   if (pwdNew.value !== pwdConfirm.value) {
-    pwdError.value = t('app.passwordMismatch')
+    pwdError.value = 'app.passwordMismatch'
     return
   }
   changingPassword.value = true
@@ -677,7 +677,7 @@ async function handleChangePassword() {
     pwdConfirm.value = ''
     showChangePwdModal.value = false
   } catch (e: any) {
-    pwdError.value = e?.message || t('app.changePasswordFailed')
+    pwdError.value = e?.message || 'app.changePasswordFailed'
   } finally {
     changingPassword.value = false
   }

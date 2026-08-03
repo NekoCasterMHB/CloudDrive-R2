@@ -10,7 +10,8 @@ export default defineEventHandler(async (event) => {
   const username: string = body?.username
   const password: string = body?.password
   if (!username || !password) {
-    throw createError({ statusCode: 400, message: '请输入用户名和密码' })
+    // 返回 i18n key，前端按 app. 前缀用 $t 翻译
+    throw createError({ statusCode: 400, message: 'app.enterUsernameAndPassword' })
   }
 
   // 通过邮箱或昵称查找用户
@@ -19,7 +20,7 @@ export default defineEventHandler(async (event) => {
     .limit(1)
 
   const u = users[0]
-  if (!u) throw createError({ statusCode: 400, message: '用户名或密码错误' })
+  if (!u) throw createError({ statusCode: 400, message: 'app.loginFailed' })
 
   // 复用 better-auth 完整 HTTP 处理（邮箱密码登录），自动校验密码并设置会话 cookie
   const url = new URL('/api/auth/sign-in/email', getRequestURL(event).origin)
@@ -31,7 +32,7 @@ export default defineEventHandler(async (event) => {
   const response = await auth.handler(request)
 
   if (!response.ok) {
-    throw createError({ statusCode: 400, message: '用户名或密码错误' })
+    throw createError({ statusCode: 400, message: 'app.loginFailed' })
   }
 
   // 直接返回 better-auth 的 Response（自动携带会话 Set-Cookie，与 catch-all 路由一致）

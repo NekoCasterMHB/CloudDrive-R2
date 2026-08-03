@@ -6,12 +6,12 @@ import { and, eq } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: new Headers(getRequestHeaders(event)) })
-  if (!session?.user) throw createError({ statusCode: 401, message: '未登录' })
+  if (!session?.user) throw createError({ statusCode: 401, message: 'app.notLoggedIn' })
 
   const body = await readBody(event)
   const password: string = body?.password
   if (!password || password.length < 6) {
-    throw createError({ statusCode: 400, message: '密码长度至少 6 位' })
+    throw createError({ statusCode: 400, message: 'app.passwordTooShort' })
   }
 
   const rows = await db.select().from(account)
@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
     .limit(1)
 
   const acc = rows[0]
-  if (acc?.password) throw createError({ statusCode: 400, message: '已设置过密码，请使用修改密码' })
+  if (acc?.password) throw createError({ statusCode: 400, message: 'app.passwordAlreadySet' })
 
   const { hashPassword } = await import('better-auth/crypto')
   const hashed = await hashPassword(password)
