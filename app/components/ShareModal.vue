@@ -256,10 +256,9 @@ async function copyPwd() {
                 :ui="{ base: 'truncate px-3' }"
               />
               <UButton
-                icon="i-lucide-copy"
+                :icon="copyDone ? 'i-lucide-check' : 'i-lucide-copy'"
                 color="primary"
                 variant="outline"
-                :class="copyDone ? 'text-green-500' : ''"
                 @click="copyUrl"
               >
                 {{ copyDone ? t('app.copied') : t('app.copy') }}
@@ -282,10 +281,9 @@ async function copyPwd() {
                 :ui="{ base: 'truncate px-3' }"
               />
               <UButton
-                icon="i-lucide-copy"
+                :icon="pwdCopied ? 'i-lucide-check' : 'i-lucide-copy'"
                 color="primary"
                 variant="outline"
-                :class="pwdCopied ? 'text-green-500' : ''"
                 @click="copyPwd"
               >
                 {{ pwdCopied ? t('app.copied') : t('app.copy') }}

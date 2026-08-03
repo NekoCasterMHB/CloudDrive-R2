@@ -65,7 +65,8 @@ export default defineNuxtConfig({
   hub: {
     db: {
       dialect: 'sqlite',
-      // d1: @nuxthub/db 直接使用 D1 binding（env.DB），不再通过 d1-http 远程 API
+      // 开发环境连云端 D1/R2：通过 wrangler.toml 里绑定的 `remote = true`（Cloudflare remote bindings）
+      // `npm run dev` 走 getPlatformProxy 直连云端资源，无需 API Token；部署时 remote 字段被忽略、始终用真实绑定
       driver: 'd1'
     },
     blob: false
@@ -98,24 +99,33 @@ export default defineNuxtConfig({
   // PWA
   pwa: {
     registerType: 'autoUpdate',
+    devOptions: {
+      enabled: true
+    },
     manifest: {
       name: 'CloudDrive R2',
-      short_name: 'CloudDriveR2',
-      description: '个人私有云盘',
+      short_name: 'CloudDrive',
+      description: '个人私有云盘 — 基于 Cloudflare R2 的个人云存储',
+      lang: 'zh-CN',
       theme_color: '#3b82f6',
       background_color: '#ffffff',
       display: 'standalone',
       orientation: 'any',
+      start_url: '/',
+      scope: '/',
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-        { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+        { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
       ]
     },
     workbox: {
-      globPatterns: ['**/*.{js,css,html,png,svg,ico}']
+      globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
+      navigateFallback: '/index.html'
     },
     client: {
-      installPrompt: true
+      installPrompt: true,
+      periodicSyncForUpdates: 3600
     }
   }
 })

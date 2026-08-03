@@ -9,11 +9,16 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "clouddrive-db"
 database_id = "3ba3fa06-562e-46f1-b554-5976f94a26be"
+# remote = true → `npm run dev` / `wrangler dev` 开发环境直连云端 D1（Cloudflare remote bindings）
+# 部署时该字段被忽略（生产始终用真实绑定）
+remote = true
 
 # R2 对象存储
 [[r2_buckets]]
 binding = "R2"
 bucket_name = "clouddrive-files"
+# remote = true → 开发环境直连云端 R2
+remote = true
 
 # Cloudflare Email Service
 [[send_email]]

@@ -48,10 +48,12 @@ export default defineEventHandler(async (event) => {
 
   // 可选密码
   let passwordHash: string | null = null
+  let passwordPlain: string | null = null
   if (body.password) {
     const pwd = String(body.password)
     if (pwd.length < 4) throw createError({ statusCode: 400, message: '密码至少 4 位' })
     passwordHash = await hashSharePassword(pwd)
+    passwordPlain = pwd // 保存明文，供分享管理展示/复制（校验仍用哈希）
   }
 
   // 可选有效期（小时）；不传 / <=0 表示永久
@@ -68,6 +70,7 @@ export default defineEventHandler(async (event) => {
     userId,
     token,
     password: passwordHash,
+    passwordPlain,
     expiresAt,
     items: JSON.stringify(itemMeta),
     createdAt: now

@@ -315,6 +315,7 @@
 
     <main
       class="flex-1 overflow-auto pb-16 md:pb-0 relative"
+      :class="{ 'select-none': rubberDragging }"
       @pointerdown="onGridPointerDown"
       @dragenter="onMainDragEnter"
       @dragover="onMainDragOver"
@@ -410,35 +411,11 @@
               :items="getContextMenuItems(item)"
             >
               <template #content-top>
-                <div class="px-3 py-2 flex items-center gap-3 border-b border-gray-100 dark:border-gray-800 min-w-60">
-                  <template v-if="fileSelected.size <= 1">
-                    <UIcon
-                      :name="item.icon || 'i-lucide-file'"
-                      :class="['text-3xl shrink-0', item.iconColor || 'text-gray-400']"
-                    />
-                    <div class="min-w-0">
-                      <p class="text-sm font-medium wrap-break-word">
-                        {{ item.name }}
-                      </p>
-                      <p class="text-xs text-gray-400 mt-0.5">
-                        {{ formatDate(item.modified) }}
-                      </p>
-                      <p class="text-xs text-gray-400 mt-0.5">
-                        <span v-if="item.type === 'file'">{{ formatSize(item.rawSize ?? 0) }}</span>
-                        <span v-else>{{ $t('app.containsFiles', { count: getChildren(item.id).length }) }}</span>
-                      </p>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <UIcon
-                      name="i-lucide-copy-check"
-                      class="text-3xl text-gray-400 shrink-0"
-                    />
-                    <p class="text-sm">
-                      {{ $t('app.selectedCount', { count: fileSelected.size }) }}
-                    </p>
-                  </template>
-                </div>
+                <MenuFileHeader
+                  :item="item"
+                  :selected-count="fileSelected.size"
+                  :get-children="getChildren"
+                />
               </template>
               <UTooltip :text="item.name">
                 <div
@@ -470,6 +447,15 @@
                       loading="lazy"
                       class="max-w-full max-h-full object-contain"
                     />
+                    <VideoThumbnail
+                      v-else-if="enableThumbnails && isVideoFile(item)"
+                      :id="item.id"
+                      :src="`/api/files/${item.id}/download`"
+                      :alt="item.name"
+                      :content-type="item.contentType"
+                      loading="lazy"
+                      class="w-full h-full max-w-full max-h-full"
+                    />
                     <UIcon
                       v-else
                       :name="item.icon || 'i-lucide-file'"
@@ -481,53 +467,24 @@
               </UTooltip>
             </UContextMenu>
           </div>
-          <!-- Rubber band 框选 -->
-          <div
-            v-if="rubberBand"
-            class="fixed z-20 pointer-events-none border border-blue-400 bg-blue-400/20 rounded-sm"
-            :style="{ left: `${rubberBand.x}px`, top: `${rubberBand.y}px`, width: `${rubberBand.w}px`, height: `${rubberBand.h}px` }"
-          />
         </div>
       </div>
       <div v-else>
         <UContextMenu :items="contextMenuItems">
           <template #content-top>
-            <div
+            <MenuFileHeader
               v-if="contextItem"
-              class="px-3 py-2 flex items-center gap-3 border-b border-gray-100 dark:border-gray-800 min-w-60"
-            >
-              <template v-if="fileSelected.size <= 1">
-                <UIcon
-                  :name="contextItem.icon || 'i-lucide-file'"
-                  :class="['text-3xl shrink-0', contextItem.iconColor || 'text-gray-400']"
-                />
-                <div class="min-w-0">
-                  <p class="text-sm font-medium wrap-break-word">
-                    {{ contextItem.name }}
-                  </p>
-                  <p class="text-xs text-gray-400 mt-0.5">
-                    {{ formatDate(contextItem.modified) }}
-                  </p>
-                  <p class="text-xs text-gray-400 mt-0.5">
-                    <span v-if="contextItem.type === 'file'">{{ formatSize(contextItem.rawSize ?? 0) }}</span>
-                    <span v-else>{{ $t('app.containsFiles', { count: getChildren(contextItem.id).length }) }}</span>
-                  </p>
-                </div>
-              </template>
-              <template v-else>
-                <UIcon
-                  name="i-lucide-copy-check"
-                  class="text-3xl text-gray-400 shrink-0"
-                />
-                <p class="text-sm">
-                  {{ $t('app.selectedCount', { count: fileSelected.size }) }}
-                </p>
-              </template>
-            </div>
+              :item="contextItem"
+              :selected-count="fileSelected.size"
+              :get-children="getChildren"
+            />
           </template>
           <UTable
+            v-model:row-selection="rowSelection"
             :data="tableData"
             :columns="tableColumns"
+            :meta="tableMeta"
+            :get-row-id="rowIdGetter"
             class="flex-1"
             @select="onTableSelect"
             @contextmenu="onTableContextmenu"
@@ -547,6 +504,24 @@
           <p class="text-sm">
             {{ $t('app.emptyHint') }}
           </p>
+        </div>
+      </div>
+      <!-- Rubber band 框选（宫格 + 列表通用，fixed 定位） -->
+      <div
+        v-if="rubberBand"
+        class="fixed z-20 pointer-events-none border border-blue-400 bg-blue-400/20 rounded-sm"
+        :style="{ left: `${rubberBand.x}px`, top: `${rubberBand.y}px`, width: `${rubberBand.w}px`, height: `${rubberBand.h}px` }"
+      />
+      <!-- 多选操作栏（长按 / 复选框 / 框选选中后显示） -->
+      <div
+        v-if="fileSelected.size > 0"
+        class="fixed bottom-4 inset-x-0 z-50 flex justify-center pointer-events-none"
+      >
+        <div class="pointer-events-auto flex items-center gap-1.5 rounded-full bg-white/90 dark:bg-gray-900/90 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-700 shadow-xl px-3 py-2">
+          <span class="text-sm font-medium px-1 shrink-0">{{ fileSelected.size }}{{ $t('app.selected') }}</span>
+          <UButton size="sm" color="primary" variant="soft" :label="$t('app.moveTo')" icon="i-lucide-folder-input" @click="openMovePicker" />
+          <UButton size="sm" color="error" variant="soft" :label="$t('app.moveToTrash')" icon="i-lucide-trash-2" @click="deleteMultiSelected" />
+          <UButton size="sm" variant="ghost" :label="$t('app.cancel')" @click="exitMobileSelect" />
         </div>
       </div>
     </main>
@@ -876,14 +851,14 @@
 <script setup lang="ts">
 import { h, resolveComponent } from 'vue'
 import type { DropdownMenuItem, TableColumn, ContextMenuItem } from '@nuxt/ui'
-import { LazyTrashModal, LazyConfirmModal, LazyRenameModal, LazyShareModal, LazyShareManagerModal } from '#components'
+import { LazyTrashModal, LazyConfirmModal, LazyRenameModal, LazyShareModal, LazyShareManagerModal, LazyMoveFolderModal } from '#components'
 
 definePageMeta({ middleware: 'auth' })
 
 const { user, logout, refreshStorage } = useAuth()
 const { locale, locales, setLocale, t } = useI18n()
 const toast = useToast()
-const { loadPreview } = useFileCache()
+const { loadPreview, removeThumbnail } = useFileCache()
 
 const { loading, loadAll, syncItem, getChildren, getItem, addItem, removeItem, items } = useFileIndex()
 
@@ -1078,6 +1053,15 @@ function getContextMenuItems(item: any): ContextMenuItem[][] {
 
 // Image extensions for PhotoSwipe
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'heic', 'heif', 'tiff', 'tif', 'raw', 'psd']
+// 视频扩展名（开启缩略图时为视频显示首帧封面）
+const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'mkv', 'm4v', 'avi', 'ogv', 'wmv', 'flv', '3gp', 'ts', 'm2ts', 'mts', 'mpeg', 'mpg']
+
+/** 是否为视频文件（按扩展名判断） */
+function isVideoFile(item: any): boolean {
+  if (item?.type !== 'file') return false
+  const ext = (item.name || '').split('.').pop()?.toLowerCase() || ''
+  return VIDEO_EXTS.includes(ext)
+}
 
 async function previewFile(item: any) {
   const ext = item.name.split('.').pop()?.toLowerCase() || ''
@@ -1186,7 +1170,52 @@ function onTableSelect(_e: Event, row: any) {
     goBack()
     return
   }
+  // 移动端多选模式：点击行切换选择
+  if (mobileMultiSelect.value) {
+    const id = row.original.id
+    const s = new Set(fileSelected)
+    if (s.has(id)) s.delete(id)
+    else s.add(id)
+    setFileSelection(s)
+    return
+  }
   onItemClick(row.original)
+}
+
+/** 打开移动目标选择器（移动端多选栏的“移动”） */
+async function openMovePicker() {
+  const ids = Array.from(fileSelected)
+  if (!ids.length) return
+  const overlay = useOverlay()
+  const target = await overlay.create(LazyMoveFolderModal).open({ getChildren, getItem })
+  if (!target) return
+  mobileMultiSelect.value = false
+  confirmMoveToFolder(ids, target.id, target.name)
+}
+
+/** 批量删除选中项（移动端多选栏的“删除”） */
+async function deleteMultiSelected() {
+  const ids = Array.from(fileSelected)
+  if (!ids.length) return
+  const overlay = useOverlay()
+  await overlay.create(LazyConfirmModal).open({
+    title: t('app.moveToTrash'),
+    message: t('app.confirmTrashBatch', { count: ids.length }),
+    icon: 'i-lucide-trash-2',
+    confirmLabel: t('app.moveToTrash'),
+    confirmColor: 'error',
+    onConfirm: async () => {
+      const first = getItem(ids[0]!)
+      await trashItem(first ?? { id: ids[0]! })
+      mobileMultiSelect.value = false
+    }
+  })
+}
+
+/** 退出移动端多选模式 */
+function exitMobileSelect() {
+  mobileMultiSelect.value = false
+  fileSelected.clear()
 }
 
 function downloadFile(item: any) {
@@ -1217,6 +1246,8 @@ async function trashItem(item: any): Promise<void> {
       })
       names.push(it.name)
       removeItem(id)
+      // 同步清理该文件的封面帧缓存
+      if (it.type === 'file') removeThumbnail(id)
     } catch { /* 单个失败继续下一个 */ }
   }
   clearFileSelection()
@@ -1265,6 +1296,7 @@ const dropTargetId = ref<string | null>(null)
 const clipboard = ref<{ items: { id: string, type: string, name: string, icon: string, iconColor: string }[], mode: 'copy' | 'cut' } | null>(null)
 
 const rubberBand = ref<{ x: number, y: number, w: number, h: number } | null>(null)
+const rubberDragging = ref(false) // 框选/拾取拖拽中（禁用浏览器默认文字选中）
 let rubberStart: { x: number, y: number } | null = null
 let rubberMoved = false
 let rubberItemRects: { id: string, rect: DOMRect }[] = []
@@ -1273,6 +1305,13 @@ let rubberLastX = 0
 let rubberLastY = 0
 let rubberFrame = 0
 const gridContainer = ref<HTMLElement>()
+
+// 移动端长按多选 / 拖拽到文件夹
+const mobileMultiSelect = ref(false) // 长按多选模式（底部操作栏）
+let rowLongPressTimer: ReturnType<typeof setTimeout> | null = null
+let pickupActive = false // 长按触发后的“拾取拖拽”模式（拖到文件夹）
+let pickupStartId: string | null = null // 长按起始行 id
+let pickupSuppressClick = false // 长按结束后抑制该次 click（避免误打开/切换）
 
 function clearFileSelection() {
   fileSelected.clear()
@@ -1348,6 +1387,7 @@ function onGridItemClick(item: any, e: MouseEvent) {
     if (s.has(item.id)) s.delete(item.id)
     else s.add(item.id)
     setFileSelection(s)
+    mobileMultiSelect.value = s.size > 0
     return
   }
   // Shift：范围选择
@@ -1366,6 +1406,7 @@ function onGridItemClick(item: any, e: MouseEvent) {
       const [a, b] = anchor < cur ? [anchor, cur] : [cur, anchor]
       for (let i = a; i <= b; i++) s.add(ids[i])
       setFileSelection(s)
+      mobileMultiSelect.value = s.size > 0
       return
     }
   }
@@ -1380,21 +1421,101 @@ function onGridItemClick(item: any, e: MouseEvent) {
   onItemClick(item)
 }
 
-// 框选（rubber band）
+// 框选（rubber band）— 宫格 + 列表通用
+let rubberFromRow = false // pointerdown 是否落在列表行上
 function onGridPointerDown(e: PointerEvent) {
   if (e.button !== 0) return
-  if (viewMode.value !== 'grid') return // 列表视图不使用框选
-  const target = e.target as HTMLElement
-  // 点击项内部或工具元素（如返回项）时不启动框选（拖动项由 dragstart 处理）
-  if (target.closest('[data-grid-item]') || target.closest('[data-rubber-ignore]')) return
-  rubberStart = { x: e.clientX, y: e.clientY }
+  // 每次按下先重置拖拽标记（避免上次拖拽残留影响本次点击/拦截）
   rubberMoved = false
+  rubberFromRow = false
+  const target = e.target as HTMLElement
+  // 网格项 / 返回项内部不启动（拖动由 dragstart 处理）
+  if (target.closest('[data-grid-item]') || target.closest('[data-rubber-ignore]')) return
+  // 点击交互控件（行内操作按钮、输入、菜单项等）不启动
+  if (target.closest('button, a, input, select, textarea, [role="menuitem"], [role="menuitemcheckbox"]')) return
+  // 表头 / 分隔线不启动
+  if (target.closest('table thead, tr[data-slot="separator"]')) return
+  // 进入框选/拾取流程：禁用浏览器默认文字选中（避免拖动时选中文本）
+  rubberDragging.value = true
+  // 是否落在列表数据行上（行点击默认打开/预览；拖拽则进入框选）
+  rubberFromRow = !!target.closest('main table tbody tr[data-slot="tr"]')
+  // 长按（按住 ~450ms 不移动）进入多选模式并可拖到文件夹（触屏/鼠标通用）
+  if (rubberFromRow) {
+    const rowEl = target.closest('main table tbody tr[data-slot="tr"]') as HTMLElement | null
+    const rowId = getItemIdFromRow(rowEl)
+    pickupStartId = rowId
+    clearRowLongPressTimer()
+    rowLongPressTimer = setTimeout(() => {
+      if (rowId && rowId !== '__back__') {
+        mobileMultiSelect.value = true
+        if (!fileSelected.has(rowId)) {
+          const s = new Set(fileSelected)
+          s.add(rowId)
+          setFileSelection(s)
+        }
+        pickupActive = true
+        pickupSuppressClick = true
+      }
+    }, 450)
+  }
+  rubberStart = { x: e.clientX, y: e.clientY }
   // 延迟到首次真正框选时再计算 item 矩形（点击空白不触发批量 getBoundingClientRect）
   rubberItemRects = []
   window.addEventListener('pointermove', onRubberMove)
   window.addEventListener('pointerup', onRubberUp)
   window.addEventListener('pointercancel', onRubberUp)
   window.addEventListener('blur', onRubberUp)
+  // 捕获阶段拦截行点击：拖拽框选后阻止该次点击触发行打开/预览
+  window.addEventListener('click', onRubberClickCapture, true)
+}
+
+/** 由列表行 DOM 反查 item id（tbody 行按顺序对应 tableData） */
+function getItemIdFromRow(tr: Element | null): string | null {
+  if (!tr) return null
+  const tbody = tr.closest('tbody')
+  if (!tbody) return null
+  const rows = Array.from(tbody.querySelectorAll('tr[data-slot="tr"]'))
+  const idx = rows.indexOf(tr)
+  return tableData.value[idx]?.id ?? null
+}
+
+function clearRowLongPressTimer() {
+  if (rowLongPressTimer) {
+    clearTimeout(rowLongPressTimer)
+    rowLongPressTimer = null
+  }
+}
+
+/** 收集当前视图可被框选的目标矩形（宫格项 / 列表行） */
+function getRubberItems(): { id: string, rect: DOMRect }[] {
+  if (viewMode.value === 'grid') {
+    return Array.from(gridContainer.value?.querySelectorAll('[data-grid-item]') || []).map(el => ({
+      id: el.getAttribute('data-id')!,
+      rect: el.getBoundingClientRect()
+    }))
+  }
+  // 列表：tbody 数据行按顺序对应 tableData（含 ../ 返回行，跳过）
+  const tbody = document.querySelector('main table tbody')
+  if (!tbody) return []
+  const trs = Array.from(tbody.querySelectorAll('tr[data-slot="tr"]'))
+  const data = tableData.value
+  const out: { id: string, rect: DOMRect }[] = []
+  trs.forEach((tr, i) => {
+    const item = data[i]
+    if (!item || item.id === '__back__') return
+    out.push({ id: item.id, rect: tr.getBoundingClientRect() })
+  })
+  return out
+}
+
+/** 捕获阶段拦截行点击：拖拽框选 / 长按拾取后阻止该次点击触发行打开/预览（处理一次即自移除） */
+function onRubberClickCapture(e: MouseEvent) {
+  if (rubberMoved || pickupSuppressClick) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  pickupSuppressClick = false
+  window.removeEventListener('click', onRubberClickCapture, true)
 }
 
 // pointermove 只记录坐标，通过 rAF 合并到每帧一次，避免每像素重渲染
@@ -1402,8 +1523,32 @@ function onRubberMove(e: PointerEvent) {
   if (!rubberStart) return
   rubberLastX = e.clientX
   rubberLastY = e.clientY
+  // 长按拾取模式：拖到文件夹
+  if (pickupActive) {
+    updatePickupDrag(e)
+    return
+  }
+  // 移动超过阈值：取消长按计时器（进入框选）
+  if (rowLongPressTimer && (Math.abs(rubberLastX - rubberStart.x) > 10 || Math.abs(rubberLastY - rubberStart.y) > 10)) {
+    clearRowLongPressTimer()
+  }
   if (rubberFrame) return
   rubberFrame = requestAnimationFrame(updateRubber)
+}
+
+/** 长按拾取拖拽：高亮指针下的文件夹行，供松手时移动全部选中项 */
+function updatePickupDrag(e: PointerEvent) {
+  const el = document.elementFromPoint(e.clientX, e.clientY)
+  const row = el?.closest?.('main table tbody tr[data-slot="tr"]') as HTMLElement | null
+  let newTarget: string | null = null
+  if (row) {
+    const id = getItemIdFromRow(row)
+    const item = id ? getItem(id) : undefined
+    if (id && id !== pickupStartId && item?.type === 'folder' && !fileSelected.has(id)) {
+      newTarget = id
+    }
+  }
+  if (newTarget !== dropTargetId.value) dropTargetId.value = newTarget
 }
 
 function updateRubber() {
@@ -1414,11 +1559,10 @@ function updateRubber() {
   // 2px 阈值：更快出现框，减少延迟感
   if (!rubberMoved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
     rubberMoved = true
-    // 首次框选时再批量获取 item 矩形
-    rubberItemRects = Array.from(gridContainer.value?.querySelectorAll('[data-grid-item]') || []).map(el => ({
-      id: el.getAttribute('data-id')!,
-      rect: el.getBoundingClientRect()
-    }))
+    // 清除浏览器已选中的文本，避免框选时残留文字高亮
+    window.getSelection()?.removeAllRanges()
+    // 首次框选时再批量获取 item 矩形（宫格项 / 列表行）
+    rubberItemRects = getRubberItems()
   }
   if (!rubberMoved) return
   const x = Math.min(rubberStart.x, rubberLastX)
@@ -1433,7 +1577,11 @@ function updateRubber() {
     }
   }
   // 仅当选择真正变化时才赋值，避免每帧全量重渲染网格
-  if (!sameSet(s, fileSelected)) setFileSelection(s)
+  if (!sameSet(s, fileSelected)) {
+    setFileSelection(s)
+    // 框选产生选择 → 进入多选模式（显示复选框列 + 底部操作栏）
+    if (s.size > 0) mobileMultiSelect.value = true
+  }
 }
 
 function sameSet(a: Set<string>, b: Set<string>): boolean {
@@ -1446,18 +1594,39 @@ function onRubberUp() {
   // 若有未执行的帧，先同步处理最后一次移动，避免最后的选择丢失
   if (rubberFrame) {
     rubberFrame = 0
-    updateRubber()
+    if (!pickupActive) updateRubber()
   }
   window.removeEventListener('pointermove', onRubberMove)
   window.removeEventListener('pointerup', onRubberUp)
   window.removeEventListener('pointercancel', onRubberUp)
   window.removeEventListener('blur', onRubberUp)
+  clearRowLongPressTimer()
+  const wasPickup = pickupActive
+  pickupActive = false
+  pickupStartId = null
   rubberBand.value = null
+  rubberDragging.value = false
   rubberStart = null
   rubberItemRects = []
-  if (!rubberMoved) {
-    // 点击空白：清除选择
-    fileSelected.clear()
+  if (wasPickup) {
+    // 长按拾取结束：落到文件夹 → 移动全部选中；否则保持多选模式
+    const targetFolderId = dropTargetId.value
+    dropTargetId.value = null
+    if (targetFolderId) {
+      const folder = getItem(targetFolderId)
+      const ids = Array.from(fileSelected)
+      mobileMultiSelect.value = false
+      if (folder && ids.length && !ids.includes(targetFolderId)) confirmMove(ids, folder)
+    }
+    return
+  }
+  if (!rubberMoved && !rubberFromRow) {
+    // 点击空白：未进入多选模式 → 清除选择并退出；
+    // 已在多选模式（框选/长按/Ctrl 多选）→ 保留模式，不自动退出
+    if (!mobileMultiSelect.value) {
+      fileSelected.clear()
+      mobileMultiSelect.value = false
+    }
   }
 }
 
@@ -1942,8 +2111,39 @@ const tableData = computed(() => {
   const backItem = pathStack.value.length > 0
     ? [{ id: '__back__', name: '../', type: 'folder', icon: 'fluent-emoji:open-file-folder', iconColor: 'text-amber-500', size: undefined, rawSize: undefined, modified: undefined }]
     : []
-  return [...backItem, ...filteredItems.value]
+  // 附加 dropTarget 字段（依赖 dropTargetId 重算），驱动拖拽目标文件夹高亮；行选中改用 UTable 原生 row-selection
+  const items = filteredItems.value.map((i: any) => ({ ...i, dropTarget: dropTargetId.value === i.id }))
+  return [...backItem, ...items]
 })
+
+// 拖拽目标文件夹高亮（meta.class.tr 由 UTable 按行渲染调用）
+const tableMeta = {
+  class: {
+    tr: (row: any) => (row.original?.dropTarget ? 'ring-2 ring-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/40' : '')
+  }
+}
+
+// UTable 原生行选择：与 fileSelected 双向同步（参考 ui.nuxt.com/docs/components/table#with-row-selection）
+const rowIdGetter = (row: any) => row.id
+const rowSelection = computed<Record<string, boolean>>({
+  get: () => Object.fromEntries(Array.from(fileSelected).map(id => [id, true])),
+  set: (val) => setFileSelection(Object.keys(val || {}).filter(k => val[k]))
+})
+const allRowsSelected = computed(() => filteredItems.value.length > 0 && filteredItems.value.every(i => fileSelected.has(i.id)))
+// “部分但非全部”选中（全部选中时表头应显示勾选而非半选）
+const someRowsSelected = computed(() => {
+  const selected = filteredItems.value.filter(i => fileSelected.has(i.id)).length
+  return selected > 0 && selected < filteredItems.value.length
+})
+function toggleAllRows(value: boolean) {
+  if (value) {
+    setFileSelection(filteredItems.value.map(i => i.id))
+  } else {
+    const s = new Set(fileSelected)
+    for (const i of filteredItems.value) s.delete(i.id)
+    setFileSelection(s)
+  }
+}
 
 const contextItem = ref<any>(null)
 const contextMenuItems = ref<ContextMenuItem[][]>([])
@@ -1957,7 +2157,33 @@ function onTableContextmenu(_e: Event, row: any) {
   contextMenuItems.value = getContextMenuItems(row.original)
 }
 
-const tableColumns: TableColumn<any>[] = [
+// 列数组引用缓存：仅「是否显示复选框列」变化时才重建，选中数量变化不触发
+// UTable 重建（否则行内 VideoThumbnail 等会重新挂载、缩略图重新加载转圈）
+let tableColumnsCache: { key: boolean, value: TableColumn<any>[] } | null = null
+const tableColumns = computed<TableColumn<any>[]>(() => {
+  const showSelect = mobileMultiSelect.value
+  if (tableColumnsCache && tableColumnsCache.key === showSelect) return tableColumnsCache.value
+  const cols: TableColumn<any>[] = [
+  // 复选框列：仅多选模式下显示（长按进入 / 底部操作栏出现时）
+  ...(showSelect ? [{
+    id: 'select',
+    header: () => h(resolveComponent('UCheckbox'), {
+      modelValue: someRowsSelected.value ? 'indeterminate' : allRowsSelected.value,
+      'onUpdate:modelValue': (value: boolean) => toggleAllRows(value),
+      'aria-label': 'Select all'
+    }),
+    cell: ({ row }: any) => {
+      if (row.original.id === '__back__') return ''
+      return h(resolveComponent('UCheckbox'), {
+        modelValue: row.getIsSelected(),
+        'onUpdate:modelValue': (value: boolean) => row.toggleSelected(!!value),
+        'aria-label': 'Select row'
+      })
+    },
+    enableSorting: false,
+    enableHiding: false,
+    meta: { class: { th: 'w-10 text-center', td: 'w-10 text-center' } }
+  }] : []),
   {
     accessorKey: 'name',
     header: '文件名',
@@ -1968,7 +2194,9 @@ const tableColumns: TableColumn<any>[] = [
       return h('div', { class: 'flex items-center gap-2 truncate' }, [
         item.isImage && enableThumbnails.value
           ? h('img', { src: `/api/files/${item.id}/download`, alt: item.name, loading: 'lazy', class: 'h-9 w-9 shrink-0 object-contain rounded' })
-          : h(resolveComponent('UIcon'), { name: item.icon, class: `text-xl shrink-0 ${item.iconColor || 'text-gray-400'}` }),
+          : isVideoFile(item) && enableThumbnails.value
+            ? h(resolveComponent('VideoThumbnail'), { id: item.id, src: `/api/files/${item.id}/download`, alt: item.name, contentType: item.contentType, loading: 'lazy', class: 'h-9 w-9 shrink-0 rounded' })
+            : h(resolveComponent('UIcon'), { name: item.icon, class: `text-xl shrink-0 ${item.iconColor || 'text-gray-400'}` }),
         h('span', { class: 'truncate' }, item.name)
       ])
     }
@@ -1976,7 +2204,7 @@ const tableColumns: TableColumn<any>[] = [
   {
     accessorKey: 'modified',
     header: '修改时间',
-    meta: { class: { th: 'hidden md:table-cell w-[160px] text-left', td: 'hidden md:table-cell w-[160px] text-sm text-gray-500' } },
+    meta: { class: { th: 'hidden md:table-cell min-w-[160px] text-left', td: 'hidden md:table-cell min-w-[160px] text-sm text-gray-500' } },
     cell: ({ row }) => {
       const ts: any = row.getValue('modified')
       if (!ts) return ''
@@ -1986,7 +2214,7 @@ const tableColumns: TableColumn<any>[] = [
   {
     accessorKey: 'size',
     header: '文件大小',
-    meta: { class: { th: 'hidden md:table-cell w-[95px] text-right', td: 'hidden md:table-cell w-[95px] text-right text-sm text-gray-500' } },
+    meta: { class: { th: 'hidden md:table-cell min-w-[95px] text-right', td: 'hidden md:table-cell min-w-[95px] text-right text-sm text-gray-500' } },
     cell: ({ row }) => row.getValue('size') || ''
   },
   {
@@ -1994,7 +2222,7 @@ const tableColumns: TableColumn<any>[] = [
     header: '操作',
     enableSorting: false,
     enableHiding: false,
-    meta: { class: { th: 'w-11 md:w-[130px] text-right', td: 'w-11 md:w-[130px] text-right' } },
+    meta: { class: { th: 'w-11 md:min-w-[130px] text-right', td: 'w-11 md:min-w-[130px] text-right' } },
     cell: ({ row }) => {
       const item = row.original
       if (item.id === '__back__') return ''
@@ -2020,22 +2248,33 @@ const tableColumns: TableColumn<any>[] = [
           'aria-label': t('app.download'),
           'onClick': () => downloadFile(item)
         }),
-        // 菜单
+        // 菜单（与右键菜单统一：顶部文件信息头 + 相同菜单项）
         h(resolveComponent('UDropdownMenu'), {
           'content': { align: 'end' },
           items,
           'aria-label': 'Actions'
-        }, () => h(resolveComponent('UButton'), {
-          'icon': 'i-lucide-ellipsis-vertical',
-          'color': 'neutral',
-          'variant': 'ghost',
-          'size': 'sm',
-          'aria-label': 'Actions'
-        }))
+        }, {
+          // 与右键菜单一致的顶部文件信息头
+          'content-top': () => h(resolveComponent('MenuFileHeader'), {
+            item,
+            selectedCount: fileSelected.size,
+            getChildren
+          }),
+          default: () => h(resolveComponent('UButton'), {
+            'icon': 'i-lucide-ellipsis-vertical',
+            'color': 'neutral',
+            'variant': 'ghost',
+            'size': 'sm',
+            'aria-label': 'Actions'
+          })
+        })
       ])
     }
   }
-]
+  ]
+  tableColumnsCache = { key: showSelect, value: cols }
+  return cols
+})
 
 const viewMenuItems = computed((): DropdownMenuItem[][] => [
   [

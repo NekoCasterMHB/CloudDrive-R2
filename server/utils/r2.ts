@@ -35,9 +35,10 @@ export async function r2Put(key: string, body: Buffer | Blob | string, contentTy
   await getR2().put(key, body, options)
 }
 
-/** 读取文件对象（返回 R2ObjectBody | null） */
-export async function r2Get(key: string) {
-  return getR2().get(key)
+/** 读取文件对象（返回 R2ObjectBody | null）；range 可选，用于视频分段/缩略图元数据请求 */
+export async function r2Get(key: string, range?: { offset: number, length: number }) {
+  const r2 = getR2()
+  return range ? r2.get(key, { range }) : r2.get(key)
 }
 
 /** 复制 R2 对象（binding 无服务端 copy；get 的流无已知长度，先缓冲到内存再 put） */

@@ -16,6 +16,7 @@ export default defineEventHandler(async (event) => {
       token: r.token,
       items: parseShareItems(r.items),
       hasPassword: !!r.password,
+      password: r.passwordPlain ?? null,
       expiresAt: r.expiresAt ? new Date(r.expiresAt).getTime() : null,
       createdAt: new Date(r.createdAt).getTime(),
       expired: !!r.expiresAt && new Date(r.expiresAt).getTime() < Date.now()

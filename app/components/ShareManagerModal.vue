@@ -9,6 +9,7 @@ interface ShareRecord {
   token: string
   items: { id: string, type: string, name: string }[]
   hasPassword: boolean
+  password: string | null
   expiresAt: number | null
   createdAt: number
   expired: boolean
@@ -43,6 +44,16 @@ async function copyLink(s: ShareRecord) {
   try {
     await navigator.clipboard.writeText(`${window.location.origin}/s/${s.token}`)
     toast.add({ title: t('app.shareCopied'), icon: 'i-lucide-check', color: 'success', duration: 2000 })
+  } catch {
+    // 忽略
+  }
+}
+
+async function copyPassword(s: ShareRecord) {
+  if (!s.password) return
+  try {
+    await navigator.clipboard.writeText(s.password)
+    toast.add({ title: t('app.sharePasswordCopied'), icon: 'i-lucide-check', color: 'success', duration: 2000 })
   } catch {
     // 忽略
   }
@@ -131,6 +142,21 @@ onMounted(load)
               </p>
               <p class="text-xs text-gray-400 mt-0.5">
                 {{ t('app.shareExpiresAt') }} {{ formatDate(s.expiresAt) }}
+              </p>
+              <p
+                v-if="s.hasPassword && s.password"
+                class="text-xs text-gray-400 mt-0.5 flex items-center gap-1"
+              >
+                <span>{{ t('app.password') }}：</span>
+                <code class="text-gray-600 dark:text-gray-300">{{ s.password }}</code>
+                <UButton
+                  icon="i-lucide-copy"
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  :title="t('app.copy')"
+                  @click="copyPassword(s)"
+                />
               </p>
             </div>
             <div class="flex items-center gap-1 shrink-0">

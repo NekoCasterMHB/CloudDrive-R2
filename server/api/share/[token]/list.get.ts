@@ -1,7 +1,7 @@
 // GET /api/share/:token/list?parentId= — 公开浏览分享内容（顶层或文件夹子项）
 import { db } from '@nuxthub/db'
 import { files as filesTable, folders as foldersTable } from '../../../database/schema'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { getValidShare, parseShareItems, isShareAuthorized, isFolderWithinShares } from '../../../utils/share'
 
 export default defineEventHandler(async (event) => {
@@ -18,11 +18,23 @@ export default defineEventHandler(async (event) => {
   const itemList = parseShareItems(share.items)
   const sharedFolderIds = new Set(itemList.filter(i => i.type === 'folder').map(i => i.id))
 
-  // 顶层：返回分享的直接项目
+  // 顶层：返回分享的直接项目（补查文件大小/类型，供缩略图与大小展示）
   if (parentId === null) {
+    const fileItems = itemList.filter(i => i.type === 'file')
+    const fileRows = fileItems.length
+      ? await db.select({ id: filesTable.id, size: filesTable.size, contentType: filesTable.contentType }).from(filesTable)
+          .where(inArray(filesTable.id, fileItems.map(i => i.id)))
+      : []
+    const metaMap = new Map(fileRows.map(f => [f.id, f]))
     return {
       parentId: null,
-      items: itemList.map(i => ({ id: i.id, type: i.type, name: i.name }))
+      items: itemList.map(i => ({
+        id: i.id,
+        type: i.type,
+        name: i.name,
+        size: i.type === 'file' ? (metaMap.get(i.id)?.size ?? undefined) : undefined,
+        contentType: i.type === 'file' ? (metaMap.get(i.id)?.contentType ?? undefined) : undefined
+      }))
     }
   }
 

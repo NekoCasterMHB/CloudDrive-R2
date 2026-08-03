@@ -53,8 +53,10 @@ const isMedia = computed(() => mediaExts.includes(ext.value))
 <template>
   <UModal
     v-model:open="isOpen"
-    fullscreen
-    :ui="{ body: '!p-0' }"
+    :ui="{
+      content: 'max-w-[95vw] sm:max-w-4xl w-full',
+      body: '!p-0'
+    }"
   >
     <template #header>
       <div class="flex items-center justify-between w-full">
@@ -70,7 +72,7 @@ const isMedia = computed(() => mediaExts.includes(ext.value))
 
     <template #body>
       <div
-        class="w-full h-full min-h-[80vh]"
+        class="w-full h-[75vh]"
         :class="{ 'hide-ofv-search': isMedia }"
       >
         <OpenFileViewer

@@ -5,7 +5,7 @@
 -- ============================================================
 
 -- ── 文件（0000）────────────────────────────────────────────
-CREATE TABLE `files` (
+CREATE TABLE IF NOT EXISTS `files` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`folder_id` text,
@@ -20,7 +20,7 @@ CREATE TABLE `files` (
 );
 
 -- ── 文件夹（0000）──────────────────────────────────────────
-CREATE TABLE `folders` (
+CREATE TABLE IF NOT EXISTS `folders` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`parent_id` text,
@@ -30,7 +30,7 @@ CREATE TABLE `folders` (
 );
 
 -- ── 回收站（0001）──────────────────────────────────────────
-CREATE TABLE `trash` (
+CREATE TABLE IF NOT EXISTS `trash` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`file_id` text,
@@ -45,7 +45,7 @@ CREATE TABLE `trash` (
 );
 
 -- ── 上传分片（0002）────────────────────────────────────────
-CREATE TABLE `upload_parts` (
+CREATE TABLE IF NOT EXISTS `upload_parts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`session_id` text NOT NULL,
 	`part_number` integer NOT NULL,
@@ -55,7 +55,7 @@ CREATE TABLE `upload_parts` (
 );
 
 -- ── 上传会话（0002，R2 Multipart Upload 断点续传）────────────
-CREATE TABLE `upload_sessions` (
+CREATE TABLE IF NOT EXISTS `upload_sessions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`folder_id` text,
@@ -69,7 +69,7 @@ CREATE TABLE `upload_sessions` (
 );
 
 -- ── 用户（0003，better-auth）───────────────────────────────
-CREATE TABLE `user` (
+CREATE TABLE IF NOT EXISTS `user` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`email` text NOT NULL,
@@ -79,10 +79,10 @@ CREATE TABLE `user` (
 	`updated_at` integer NOT NULL
 );
 
-CREATE UNIQUE INDEX `user_email_unique` ON `user` (`email`);
+CREATE UNIQUE INDEX IF NOT EXISTS `user_email_unique` ON `user` (`email`);
 
 -- ── 会话（0003，better-auth）───────────────────────────────
-CREATE TABLE `session` (
+CREATE TABLE IF NOT EXISTS `session` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`token` text NOT NULL,
@@ -94,10 +94,10 @@ CREATE TABLE `session` (
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE cascade
 );
 
-CREATE UNIQUE INDEX `session_token_unique` ON `session` (`token`);
+CREATE UNIQUE INDEX IF NOT EXISTS `session_token_unique` ON `session` (`token`);
 
 -- ── 账号（0003，better-auth，含密码哈希）────────────────────
-CREATE TABLE `account` (
+CREATE TABLE IF NOT EXISTS `account` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`account_id` text NOT NULL,
@@ -115,7 +115,7 @@ CREATE TABLE `account` (
 );
 
 -- ── 验证码（0003，better-auth emailOTP）────────────────────
-CREATE TABLE `verification` (
+CREATE TABLE IF NOT EXISTS `verification` (
 	`id` text PRIMARY KEY NOT NULL,
 	`identifier` text NOT NULL,
 	`value` text NOT NULL,
@@ -125,7 +125,7 @@ CREATE TABLE `verification` (
 );
 
 -- ── 用户设置（0004，key-value JSON）────────────────────────
-CREATE TABLE `user_settings` (
+CREATE TABLE IF NOT EXISTS `user_settings` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`key` text NOT NULL,
@@ -134,14 +134,15 @@ CREATE TABLE `user_settings` (
 );
 
 -- ── 分享（0005，文件/文件夹混选）────────────────────────────
-CREATE TABLE `shares` (
+CREATE TABLE IF NOT EXISTS `shares` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`token` text NOT NULL,
 	`password` text,
+	`password_plain` text,
 	`expires_at` integer,
 	`items` text NOT NULL,
 	`created_at` integer NOT NULL
 );
 
-CREATE UNIQUE INDEX `shares_token_unique` ON `shares` (`token`);
+CREATE UNIQUE INDEX IF NOT EXISTS `shares_token_unique` ON `shares` (`token`);

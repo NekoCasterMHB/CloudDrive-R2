@@ -79,6 +79,7 @@ export const shares = sqliteTable('shares', {
   userId: text('user_id').notNull(),
   token: text('token').notNull(), // 唯一分享码
   password: text('password'), // 密码哈希（可选，null 表示无密码）
+  passwordPlain: text('password_plain'), // 密码明文（仅供分享管理中展示/复制；校验仍用 password 哈希）
   expiresAt: integer('expires_at', { mode: 'timestamp' }), // 可选，null 表示永久
   items: text('items').notNull(), // JSON 字符串
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull()

@@ -20,10 +20,16 @@ const uiLocale = computed(() => {
 
 useHead({
   meta: [
-    { name: 'viewport', content: 'width=device-width, initial-scale=1' }
+    { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+    { name: 'theme-color', content: '#3b82f6' },
+    { name: 'apple-mobile-web-app-capable', content: 'yes' },
+    { name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
+    { name: 'apple-mobile-web-app-title', content: 'CloudDrive' }
   ],
   link: [
-    { rel: 'icon', href: '/favicon.ico' }
+    { rel: 'icon', href: '/favicon.ico' },
+    { rel: 'manifest', href: '/manifest.webmanifest' },
+    { rel: 'apple-touch-icon', href: '/icons/icon-192.png' }
   ],
   htmlAttrs: {
     lang: 'zh-CN'
@@ -42,5 +48,6 @@ useSeoMeta({
 <template>
   <UApp :locale="uiLocale">
     <NuxtPage />
+    <PwaManager />
   </UApp>
 </template>

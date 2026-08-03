@@ -29,9 +29,17 @@ export interface CacheEntry {
   lastAccessAt: number
 }
 
+/** 视频封面帧缓存条目：dataURL 字符串，体积远小于原视频 */
+export interface ThumbEntry {
+  id: string
+  dataUrl: string
+  cachedAt: number
+}
+
 const DB_NAME = 'clouddrive-cache'
 const STORE = 'files'
-const DB_VERSION = 1
+const THUMB_STORE = 'thumbnails'
+const DB_VERSION = 2
 
 export const DEFAULT_MAX_SIZE = 1024 * 1024 * 1024 // 1GB
 
@@ -50,6 +58,9 @@ function openDB(): Promise<IDBDatabase> {
       const db = req.result
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(THUMB_STORE)) {
+        db.createObjectStore(THUMB_STORE, { keyPath: 'id' })
       }
     }
     req.onsuccess = () => {
@@ -171,6 +182,86 @@ function getAllEntries(): Promise<CacheEntry[]> {
   })
 }
 
+// ---------- 视频封面帧缓存（缩略图，dataURL 持久化到 IndexedDB） ----------
+const THUMB_MAX = 300 // 缩略图缓存上限条数，超出按最旧清理
+
+function idbThumbGet(id: string): Promise<ThumbEntry | undefined> {
+  return openDB().then(db => new Promise<ThumbEntry | undefined>((resolve, reject) => {
+    const tx = db.transaction(THUMB_STORE, 'readonly')
+    const req = tx.objectStore(THUMB_STORE).get(id)
+    req.onsuccess = () => resolve(req.result as ThumbEntry | undefined)
+    req.onerror = () => reject(req.error)
+    tx.onabort = () => reject(tx.error)
+  })).catch(() => {
+    invalidateDB()
+    return undefined
+  })
+}
+
+function idbThumbPut(entry: ThumbEntry): Promise<void> {
+  return openDB().then(db => new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(THUMB_STORE, 'readwrite')
+    tx.objectStore(THUMB_STORE).put(entry)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })).catch(() => {
+    invalidateDB()
+  })
+}
+
+function idbThumbDelete(id: string): Promise<void> {
+  return openDB().then(db => new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(THUMB_STORE, 'readwrite')
+    tx.objectStore(THUMB_STORE).delete(id)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })).catch(() => {
+    invalidateDB()
+  })
+}
+
+function idbThumbGetAll(): Promise<ThumbEntry[]> {
+  return openDB().then(db => new Promise<ThumbEntry[]>((resolve, reject) => {
+    const tx = db.transaction(THUMB_STORE, 'readonly')
+    const req = tx.objectStore(THUMB_STORE).getAll()
+    req.onsuccess = () => resolve((req.result || []) as ThumbEntry[])
+    req.onerror = () => reject(req.error)
+    tx.onabort = () => reject(tx.error)
+  })).catch(() => {
+    invalidateDB()
+    return []
+  })
+}
+
+function idbThumbClear(): Promise<void> {
+  return openDB().then(db => new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(THUMB_STORE, 'readwrite')
+    tx.objectStore(THUMB_STORE).clear()
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })).catch(() => {
+    invalidateDB()
+  })
+}
+
+/** 缩略图条目数超过上限时按最旧（cachedAt）清理 */
+async function evictThumbsIfNeeded() {
+  try {
+    const all = await idbThumbGetAll()
+    if (all.length <= THUMB_MAX) return
+    all.sort((a, b) => a.cachedAt - b.cachedAt)
+    const overflow = all.length - THUMB_MAX
+    for (let i = 0; i < overflow; i++) {
+      await idbThumbDelete(all[i].id)
+    }
+  } catch {
+    // 清理失败静默忽略
+  }
+}
+
 // ---------- 模块级共享状态 ----------
 const stats = ref<{ count: number, size: number }>({ count: 0, size: 0 })
 
@@ -266,6 +357,7 @@ export function useFileCache() {
 
   async function clearCache() {
     await idbClear()
+    await idbThumbClear()
     // 清空后作废连接，下次操作重开新连接，避免缓存功能"失效"
     invalidateDB()
     refreshStats()
@@ -274,6 +366,46 @@ export function useFileCache() {
   async function removeEntry(id: string) {
     await idbDelete(id).catch(() => {})
     refreshStats()
+  }
+
+  /** 读取已缓存的视频封面帧（dataURL）；未命中/失败返回 null */
+  async function getThumbnail(id: string): Promise<string | null> {
+    try {
+      const entry = await idbThumbGet(id)
+      if (!entry) return null
+      // 刷新访问时间，供 LRU 清理使用
+      entry.cachedAt = Date.now()
+      await idbThumbPut(entry)
+      return entry.dataUrl
+    } catch {
+      return null
+    }
+  }
+
+  /** 缓存视频封面帧（dataURL）。配额不足时先清理最旧一批再重试。返回是否成功 */
+  async function setThumbnail(id: string, dataUrl: string): Promise<boolean> {
+    try {
+      await idbThumbPut({ id, dataUrl, cachedAt: Date.now() })
+      await evictThumbsIfNeeded()
+      return true
+    } catch {
+      // 写入失败（如配额超限）：清掉最旧的 1/4 再试一次
+      try {
+        const all = await idbThumbGetAll()
+        all.sort((a, b) => a.cachedAt - b.cachedAt)
+        const drop = Math.max(1, Math.floor(all.length / 4))
+        for (let i = 0; i < drop; i++) await idbThumbDelete(all[i].id)
+        await idbThumbPut({ id, dataUrl, cachedAt: Date.now() })
+        return true
+      } catch {
+        return false
+      }
+    }
+  }
+
+  /** 删除某文件的封面帧缓存（回收站/删除时调用） */
+  async function removeThumbnail(id: string) {
+    await idbThumbDelete(id).catch(() => {})
   }
 
   /**
@@ -307,6 +439,9 @@ export function useFileCache() {
     getObjectUrl,
     clearCache,
     removeEntry,
+    getThumbnail,
+    setThumbnail,
+    removeThumbnail,
     refreshStats,
     loadPreview,
     shouldCache: (ct: string) => shouldCacheContentType(ct, settings.value)
