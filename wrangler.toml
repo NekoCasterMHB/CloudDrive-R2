@@ -26,7 +26,7 @@ name = "EMAIL"
 
 [vars]
 # Better Auth 需要 baseURL（部署后替换为实际域名）
-BETTER_AUTH_URL = "https://yourdomain.com"
+BETTER_AUTH_URL = "https://r2drive.orange-trees.com"
 
 [observability]
 enabled = true
