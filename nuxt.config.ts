@@ -36,7 +36,7 @@ export default defineNuxtConfig({
     devConsoleEmail: process.env.DEV_CONSOLE_EMAIL || '',
     email: {
       from: process.env.EMAIL_FROM || 'no-reply@yourdomain.com',
-      fromName: 'CloudDrive'
+      fromName: 'CloudDriveR2'
     }
   },
 
@@ -104,7 +104,7 @@ export default defineNuxtConfig({
     },
     manifest: {
       name: 'CloudDrive R2',
-      short_name: 'CloudDrive',
+      short_name: 'CloudDriveR2',
       description: '个人私有云盘 — 基于 Cloudflare R2 的个人云存储',
       lang: 'zh-CN',
       theme_color: '#3b82f6',

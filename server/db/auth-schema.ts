@@ -6,6 +6,8 @@ export const user = sqliteTable('user', {
   email: text('email').notNull().unique(),
   emailVerified: integer('email_verified', { mode: 'boolean' }).notNull(),
   image: text('image'),
+  role: text('role').notNull().default('user'), // 'admin' | 'user'（首个注册用户为 admin）
+  groupId: text('group_id'), // 用户组 id（管理员统一配置，nullable）
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
 })

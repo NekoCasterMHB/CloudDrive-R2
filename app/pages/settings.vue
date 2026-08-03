@@ -1,31 +1,76 @@
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-950">
-    <header class="sticky top-0 z-10 bg-white/80 dark:bg-gray-950/80 backdrop-blur border-b border-gray-200 dark:border-gray-800">
-      <div class="flex items-center px-4 h-14 gap-3">
-        <UButton
-          icon="i-lucide-arrow-left"
-          variant="ghost"
-          size="sm"
-          @click="navigateTo('/')"
-        />
-        <h1 class="text-lg font-semibold">
-          {{ $t('app.settings') }}
-        </h1>
-      </div>
-    </header>
+    <AppHeader />
 
-    <div class="max-w-lg mx-auto p-4 space-y-6">
-      <!-- 账户 -->
-      <UCard>
+    <div class="max-w-4xl mx-auto p-4 flex gap-6 items-start">
+      <!-- 左侧导航 -->
+      <aside class="w-44 shrink-0 sticky top-16 hidden sm:block">
+        <nav class="flex flex-col gap-1">
+          <button
+            v-for="item in settingsNavItems"
+            :key="item.key"
+            class="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors"
+            :class="activeSettingsTab === item.key ? 'bg-primary/10 text-primary font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'"
+            @click="activeSettingsTab = item.key"
+          >
+            <UIcon
+              :name="item.icon"
+              class="size-4 shrink-0"
+            />
+            <span class="truncate">{{ item.label }}</span>
+          </button>
+        </nav>
+      </aside>
+
+      <!-- 右侧内容 -->
+      <div class="flex-1 min-w-0 space-y-6">
+        <!-- 移动端导航 -->
+        <div class="flex sm:hidden gap-1 overflow-x-auto">
+          <button
+            v-for="item in settingsNavItems"
+            :key="item.key"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm whitespace-nowrap transition-colors"
+            :class="activeSettingsTab === item.key ? 'bg-primary/10 text-primary font-medium' : 'text-gray-600 dark:text-gray-400'"
+            @click="activeSettingsTab = item.key"
+          >
+            <UIcon
+              :name="item.icon"
+              class="size-4 shrink-0"
+            />
+            {{ item.label }}
+          </button>
+        </div>
+
+        <!-- 系统设置面板 -->
+        <div
+          v-show="activeSettingsTab === 'settings'"
+          class="space-y-6"
+        >
+          <!-- 账户 -->
+          <UCard>
         <template #header>
           <h2 class="font-semibold">
             {{ $t('app.account') }}
           </h2>
         </template>
+        <div
+          v-if="groupName"
+          class="mb-3 flex items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
+        >
+          <UIcon
+            name="i-lucide-shield-check"
+            class="size-4 mt-px shrink-0"
+          />
+          <span>{{ $t('app.groupManagedHint', { group: groupName }) }}</span>
+        </div>
         <div class="space-y-2 text-sm">
           <div class="flex justify-between">
             <span class="text-gray-500">{{ $t('app.email') }}</span>
             <span>{{ user?.email }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-500">{{ $t('app.userGroup') }}</span>
+            <span>{{ groupName || '-' }}</span>
           </div>
           <div class="flex justify-between">
             <span class="text-gray-500">{{ $t('app.storage') }}</span>
@@ -36,14 +81,26 @@
               <p class="font-medium">
                 {{ $t('app.storageLimit') }}
               </p>
-              <p class="text-xs text-gray-400 mt-0.5">
+              <p
+                v-if="storageLimitManaged"
+                class="text-xs text-amber-500 mt-0.5 flex items-center gap-1"
+              >
+                <UIcon
+                  name="i-lucide-lock"
+                  class="text-xs"
+                />{{ $t('app.managedByAdmin') }}
+              </p>
+              <p
+                v-else
+                class="text-xs text-gray-400 mt-0.5"
+              >
                 {{ $t('app.storageLimitHint') }}
               </p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <span class="text-sm font-medium">{{ storageLimitDisplay }}</span>
               <UButton
-                v-if="!isTestUser"
+                v-if="!isTestUser && !storageLimitManaged"
                 icon="i-lucide-pencil"
                 variant="outline"
                 size="sm"
@@ -60,12 +117,24 @@
               <p class="font-medium">
                 {{ $t('app.changePassword') }}
               </p>
-              <p class="text-xs text-gray-400 mt-0.5">
+              <p
+                v-if="!canChangePassword"
+                class="text-xs text-amber-500 mt-0.5 flex items-center gap-1"
+              >
+                <UIcon
+                  name="i-lucide-lock"
+                  class="text-xs"
+                />{{ $t('app.managedByAdmin') }}
+              </p>
+              <p
+                v-else
+                class="text-xs text-gray-400 mt-0.5"
+              >
                 {{ $t('app.changePasswordHint') }}
               </p>
             </div>
             <UButton
-              v-if="!isTestUser"
+              v-if="!isTestUser && canChangePassword"
               icon="i-lucide-key-round"
               color="primary"
               variant="outline"
@@ -296,7 +365,19 @@
               <p class="font-medium">
                 {{ $t('app.chunkSize') }}
               </p>
-              <p class="text-xs text-gray-400 mt-0.5">
+              <p
+                v-if="chunkSizeManaged"
+                class="text-xs text-amber-500 mt-0.5 flex items-center gap-1"
+              >
+                <UIcon
+                  name="i-lucide-lock"
+                  class="text-xs"
+                />{{ $t('app.managedByAdmin') }}
+              </p>
+              <p
+                v-else
+                class="text-xs text-gray-400 mt-0.5"
+              >
                 {{ $t('app.chunkSizeHint') }}
               </p>
             </div>
@@ -304,6 +385,7 @@
               v-model="chunkSize"
               :items="chunkOptions"
               class="w-36 shrink-0"
+              :disabled="chunkSizeManaged"
             />
           </div>
         </div>
@@ -444,6 +526,31 @@
           <p>{{ $t('app.aboutDesc') }}</p>
         </div>
       </UCard>
+        </div><!-- /系统设置面板 -->
+
+        <!-- 分享管理面板 -->
+        <div
+          v-show="activeSettingsTab === 'shares'"
+          class="space-y-6"
+        >
+          <UCard>
+            <template #header>
+              <h2 class="font-semibold">
+                {{ $t('app.shareManager') }}
+              </h2>
+            </template>
+            <ShareManagerList />
+          </UCard>
+        </div>
+
+        <!-- 用户管理面板（仅管理员，且仅激活时挂载，避免非管理员 403 请求） -->
+        <div
+          v-if="user?.role === 'admin' && activeSettingsTab === 'users'"
+          class="space-y-6"
+        >
+          <UserManagerContent />
+        </div>
+      </div><!-- /右侧内容 -->
     </div>
   </div>
 </template>
@@ -509,8 +616,31 @@ async function syncIndex() {
   }
 }
 
+// 设置中心侧边栏导航（派生 computed：随 ?tab= 查询参数与用户角色自动响应）
+const route = useRoute()
+const settingsNavItems = computed(() => [
+  { key: 'settings', label: t('app.settings'), icon: 'i-lucide-settings' },
+  { key: 'shares', label: t('app.shareManager'), icon: 'i-lucide-share-2' },
+  ...(user.value?.role === 'admin' ? [{ key: 'users', label: t('app.userManagement'), icon: 'i-lucide-users' }] : [])
+])
+const activeSettingsTab = computed({
+  get() {
+    const tab = route.query.tab
+    if (tab === 'users') return user.value?.role === 'admin' ? 'users' : 'settings'
+    if (tab === 'shares') return 'shares'
+    return 'settings'
+  },
+  set(v: 'settings' | 'shares' | 'users') {
+    navigateTo({ path: route.path, query: { ...route.query, tab: v } }, { replace: true })
+  }
+})
+
 // 应用设置（D1 持久化）
-const { settings: appSettings, save: saveSettings, load: loadSettings } = useSettings()
+const { settings: appSettings, save: saveSettings, load: loadSettings, managed, canChangePassword, groupName } = useSettings()
+
+// 用户组统一管理的设置项（设置页禁用并提示）
+const storageLimitManaged = computed(() => managed.value.includes('storageLimit'))
+const chunkSizeManaged = computed(() => managed.value.includes('uploadChunkSize'))
 
 // 修改密码
 const showChangePwdModal = ref(false)

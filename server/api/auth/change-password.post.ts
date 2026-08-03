@@ -3,10 +3,17 @@ import { auth } from '../../utils/auth'
 import { db } from '../../database'
 import { account } from '../../db/auth-schema'
 import { and, eq } from 'drizzle-orm'
+import { getUserGroup } from '../../utils/group'
 
 export default defineEventHandler(async (event) => {
   const session = await auth.api.getSession({ headers: new Headers(getRequestHeaders(event)) })
   if (!session?.user) throw createError({ statusCode: 401, message: '未登录' })
+
+  // 用户组禁止修改密码
+  const group = await getUserGroup(session.user.id)
+  if (group && !group.canChangePassword) {
+    throw createError({ statusCode: 403, message: '密码由系统管理员统一管理，无法修改' })
+  }
 
   const body = await readBody(event)
   const currentPassword: string = body?.currentPassword

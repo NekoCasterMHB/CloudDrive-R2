@@ -165,7 +165,7 @@
 
       <UAlert
         v-if="error"
-        :title="error"
+        :title="error.startsWith('app.') ? $t(error) : error"
         color="error"
         variant="soft"
         class="mt-3"
@@ -225,7 +225,7 @@ async function handlePasswordLogin() {
     await navigateTo('/')
   } catch (e: any) {
     console.error('[PasswordLogin]', e)
-    error.value = e?.message || t('app.loginFailed')
+    error.value = e?.message || 'app.loginFailed'
   } finally {
     loading.value = false
   }
@@ -244,7 +244,7 @@ async function handleLogin() {
     codeSent.value = true
   } catch (e: any) {
     console.error('[Login]', e)
-    error.value = e?.message || e?.data?.error || $t('app.sendFailed')
+    error.value = e?.data?.code === 'REGISTER_DISABLED' ? 'app.registerDisabled' : (e?.data?.message || e?.message || 'app.sendFailed')
   } finally {
     loading.value = false
   }
@@ -264,7 +264,7 @@ async function handleVerify() {
     }
   } catch (e: any) {
     console.error('[Verify]', e)
-    error.value = e?.message || e?.data?.error || $t('app.codeError')
+    error.value = e?.data?.code === 'REGISTER_DISABLED' ? 'app.registerDisabled' : (e?.data?.message || e?.message || 'app.codeError')
   } finally {
     loading.value = false
   }
@@ -273,11 +273,11 @@ async function handleVerify() {
 async function handleSetPassword() {
   error.value = ''
   if (password.value.length < 6) {
-    error.value = t('app.passwordTooShort')
+    error.value = 'app.passwordTooShort'
     return
   }
   if (password.value !== confirmPassword.value) {
-    error.value = t('app.passwordMismatch')
+    error.value = 'app.passwordMismatch'
     return
   }
   loading.value = true
@@ -286,7 +286,7 @@ async function handleSetPassword() {
     await navigateTo('/')
   } catch (e: any) {
     console.error('[SetPassword]', e)
-    error.value = e?.message || t('app.setPasswordFailed')
+    error.value = e?.message || 'app.setPasswordFailed'
   } finally {
     loading.value = false
   }

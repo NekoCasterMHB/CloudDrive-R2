@@ -20,3 +20,20 @@ export async function requireUserId(event: any): Promise<string> {
   if (!userId) throw createError({ statusCode: 401, message: '未登录' })
   return userId
 }
+
+/** 当前用户是否为管理员（session.user.role，来自 user 表 additionalFields） */
+export async function isAdmin(event: any): Promise<boolean> {
+  try {
+    const session = await auth.api.getSession({ headers: new Headers(getRequestHeaders(event)) })
+    return session?.user?.role === 'admin'
+  } catch {
+    return false
+  }
+}
+
+/** 获取用户 ID 且必须是管理员，否则抛 403 */
+export async function requireAdmin(event: any): Promise<string> {
+  const userId = await requireUserId(event)
+  if (!(await isAdmin(event))) throw createError({ statusCode: 403, message: '无权限' })
+  return userId
+}

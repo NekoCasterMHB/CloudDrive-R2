@@ -1,7 +1,8 @@
-// GET /api/storage/usage — 返回当前用户的存储占用与配额（配额来自 D1 设置，默认 1TB）
+// GET /api/storage/usage — 返回当前用户的存储占用与配额（配额来自用户组/个人设置，默认 1TB）
 import { db } from '@nuxthub/db'
 import { files, userSettings } from '../../database/schema'
 import { and, eq, sql } from 'drizzle-orm'
+import { getUserGroup } from '../../utils/group'
 
 export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
@@ -11,20 +12,25 @@ export default defineEventHandler(async (event) => {
     used: sql<number>`COALESCE(SUM(${files.size}), 0)`
   }).from(files).where(eq(files.userId, userId))
 
-  // 配额：测试用户固定 100MB；其他优先读取用户设置的 storageLimit（0 表示无限制），默认 1TB
+  // 配额优先级：测试用户固定 100MB → 用户组 storageLimit（0=无限制）→ 个人设置 → 默认 1TB
   let limit = 1024 * 1024 * 1024 * 1024
   if (userId === TEST_USER_ID) {
     limit = TEST_USER_LIMIT
   } else {
-    const limitRow = await db.select().from(userSettings)
-      .where(and(eq(userSettings.userId, userId), eq(userSettings.key, 'storageLimit')))
-      .limit(1)
-    if (limitRow[0]) {
-      try {
-        const v = Number(JSON.parse(limitRow[0].value))
-        if (Number.isFinite(v) && v >= 0) limit = v
-      } catch {
-        // 使用默认值
+    const group = await getUserGroup(userId)
+    if (group) {
+      limit = group.storageLimit
+    } else {
+      const limitRow = await db.select().from(userSettings)
+        .where(and(eq(userSettings.userId, userId), eq(userSettings.key, 'storageLimit')))
+        .limit(1)
+      if (limitRow[0]) {
+        try {
+          const v = Number(JSON.parse(limitRow[0].value))
+          if (Number.isFinite(v) && v >= 0) limit = v
+        } catch {
+          // 使用默认值
+        }
       }
     }
   }

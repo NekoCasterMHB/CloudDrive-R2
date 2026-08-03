@@ -3,8 +3,11 @@ import { db } from '@nuxthub/db'
 import { userSettings } from '../../database/schema'
 import { and, eq } from 'drizzle-orm'
 import { SETTINGS_DEFAULTS } from './index.get'
+import { getUserGroup } from '../../utils/group'
 
 const ALLOWED_KEYS = Object.keys(SETTINGS_DEFAULTS)
+// 被用户组锁定的设置项：用户无法手动修改
+const GROUP_MANAGED_KEYS = ['storageLimit', 'uploadChunkSize']
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -16,11 +19,15 @@ export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
   const now = new Date()
   const isTestUser = userId === TEST_USER_ID
+  // 用户组锁定：被分配用户组后 storageLimit/uploadChunkSize 不可手动修改
+  const group = await getUserGroup(userId)
 
   for (const key of ALLOWED_KEYS) {
     if (body[key] === undefined) continue
     // 测试用户不允许修改存储上限（固定 100MB）
     if (isTestUser && key === 'storageLimit') continue
+    // 用户组管理项不可手动修改
+    if (group && GROUP_MANAGED_KEYS.includes(key)) continue
     const value = JSON.stringify(body[key])
 
     const existing = await db.select().from(userSettings)

@@ -59,34 +59,59 @@ function saveLocal(s: AppSettings) {
   }
 }
 
-// 模块级单例
+// 模块级单例（SPA 全程存活，需在用户切换时重置，否则会残留上一个账号的组/设置）
 const settings = ref<AppSettings>(loadLocal())
 const loaded = ref(false)
+// 用户组统一管理：被锁定不可手动修改的设置项 / 可否改密码 / 所属组名
+const managed = ref<string[]>([])
+const canChangePassword = ref(true)
+const groupName = ref<string | null>(null)
+
+/** 从 D1 拉取设置并覆盖本地（已加载过则跳过） */
+async function load() {
+  if (loaded.value) return
+  try {
+    const res = await $fetch<Partial<AppSettings> & { managed?: string[], canChangePassword?: boolean, groupName?: string | null }>('/api/settings')
+    settings.value = { ...DEFAULTS, ...settings.value, ...res }
+    managed.value = Array.isArray(res?.managed) ? res.managed : []
+    canChangePassword.value = res?.canChangePassword !== false
+    groupName.value = res?.groupName ?? null
+    loaded.value = true
+    saveLocal(settings.value)
+  } catch {
+    // 拉取失败时使用本地兜底值
+  }
+}
+
+/** 乐观更新并持久化到 D1（localStorage 同步缓存） */
+async function save(patch: Partial<AppSettings>) {
+  settings.value = { ...settings.value, ...patch }
+  saveLocal(settings.value)
+  try {
+    await $fetch('/api/settings', { method: 'PUT', body: patch })
+  } catch {
+    // 保存失败时保留本地值，下次再同步
+  }
+}
 
 export function useSettings() {
-  /** 从 D1 拉取设置并覆盖本地（已加载过则跳过） */
-  async function load() {
-    if (loaded.value) return
-    try {
-      const res = await $fetch<Partial<AppSettings>>('/api/settings')
-      settings.value = { ...DEFAULTS, ...settings.value, ...res }
-      loaded.value = true
-      saveLocal(settings.value)
-    } catch {
-      // 拉取失败时使用本地兜底值
-    }
-  }
+  return { settings, loaded, load, save, managed, canChangePassword, groupName }
+}
 
-  /** 乐观更新并持久化到 D1（localStorage 同步缓存） */
-  async function save(patch: Partial<AppSettings>) {
-    settings.value = { ...settings.value, ...patch }
-    saveLocal(settings.value)
-    try {
-      await $fetch('/api/settings', { method: 'PUT', body: patch })
-    } catch {
-      // 保存失败时保留本地值，下次再同步
+// 模块加载时注册一次：当前用户变化（登出 / 切换账号）时重置单例并重新拉取，
+// 避免上一个账号的「所属用户组」/ 锁定项 / 设置残留到新账号
+{
+  const { user } = useAuth()
+  let lastUserId: string | null = null
+  watch(() => user.value?.id, (id) => {
+    if (id && id !== lastUserId) {
+      lastUserId = id
+      loaded.value = false
+      managed.value = []
+      canChangePassword.value = true
+      groupName.value = null
+      settings.value = loadLocal()
+      load()
     }
-  }
-
-  return { settings, loaded, load, save }
+  })
 }

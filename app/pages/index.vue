@@ -1,15 +1,7 @@
 <template>
   <div class="min-h-screen flex flex-col bg-white dark:bg-gray-950">
-    <header class="sticky top-0 z-10 bg-white/80 dark:bg-gray-950/80 backdrop-blur border-b border-gray-200 dark:border-gray-800">
-      <div class="flex items-center px-4 h-14 gap-3">
-        <img
-          src="/logo.png"
-          alt="CloudDrive"
-          class="h-8 w-8 rounded-lg object-cover"
-        >
-        <h1 class="text-lg font-semibold truncate flex-1">
-          CloudDrive
-        </h1>
+    <AppHeader>
+      <template #right>
         <UPopover
           v-model:open="showTransferPopover"
           :ui="{ content: 'w-80' }"
@@ -20,7 +12,7 @@
               :label="$t('app.transfers')"
               :ui="{ label: 'hidden sm:inline', leadingIcon: activeCount > 0 ? 'animate-spin' : '' }"
               variant="subtle"
-              size="md"
+              size="sm"
             />
             <UBadge
               v-if="activeCount > 0"
@@ -117,50 +109,11 @@
           :label="$t('app.trash')"
           :ui="{ label: 'hidden sm:inline' }"
           variant="subtle"
-          size="md"
+          size="sm"
           @click="openTrash"
         />
-        <UDropdownMenu :items="langMenuItems">
-          <UButton
-            icon="i-lucide-languages"
-            variant="ghost"
-            size="md"
-          />
-        </UDropdownMenu>
-        <UColorModeButton
-          color="primary"
-          variant="ghost"
-          size="md"
-        />
-        <UDropdownMenu
-          :items="menuItems"
-          @update:open="onUserMenuOpen"
-        >
-          <UButton
-            icon="i-lucide-user-round"
-            variant="ghost"
-            size="md"
-          />
-          <template #storage>
-            <div class="px-1 py-1 min-w-56">
-              <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-1.5">
-                <UIcon
-                  name="i-lucide-hard-drive"
-                  class="text-base shrink-0"
-                />
-                <span class="flex-1 min-w-0">{{ formatSize(user?.storageUsed ?? 0) }} / {{ (user?.storageLimit ?? 0) <= 0 ? $t('app.cacheSizeUnlimited') : formatSize(user?.storageLimit ?? 0) }}</span>
-                <span>{{ storagePercent.toFixed(1) }}%</span>
-              </div>
-              <UProgress
-                :model-value="storagePercent"
-                size="sm"
-                color="primary"
-              />
-            </div>
-          </template>
-        </UDropdownMenu>
-      </div>
-    </header>
+      </template>
+    </AppHeader>
 
     <!-- Breadcrumb + Toolbar -->
     <nav class="sticky top-14 z-9 bg-white/80 dark:bg-gray-950/80 backdrop-blur border-b border-gray-200 dark:border-gray-800 px-4 py-1.5 flex items-center gap-2">
@@ -855,8 +808,8 @@ import { LazyTrashModal, LazyConfirmModal, LazyRenameModal, LazyShareModal, Lazy
 
 definePageMeta({ middleware: 'auth' })
 
-const { user, logout, refreshStorage } = useAuth()
-const { locale, locales, setLocale, t } = useI18n()
+const { user } = useAuth()
+const { t } = useI18n()
 const toast = useToast()
 const { loadPreview, removeThumbnail } = useFileCache()
 
@@ -984,11 +937,6 @@ function openShareForItem(item: any) {
 }
 
 /** 打开分享管理模态框 */
-function openShareManager() {
-  const overlay = useOverlay()
-  overlay.create(LazyShareManagerModal).open({})
-}
-
 function getContextMenuItems(item: any): ContextMenuItem[][] {
   const isFolder = item.type === 'folder'
   const multi = fileSelected.size > 1
@@ -2331,17 +2279,6 @@ const gridViewClasses = computed(() => {
   }
 })
 
-const langMenuItems = computed(() => {
-  const name = (code: string) => locales.value.find(l => l.code === code)?.name ?? code
-  return [
-    [
-      { label: name('zh-CN'), icon: 'i-flag:cn-4x3', type: 'checkbox' as const, checked: locale.value === 'zh-CN', onUpdateChecked() { setLocale('zh-CN') } },
-      { label: name('ja'), icon: 'i-flag:jp-4x3', type: 'checkbox' as const, checked: locale.value === 'ja', onUpdateChecked() { setLocale('ja') } },
-      { label: name('en'), icon: 'i-flag:us-4x3', type: 'checkbox' as const, checked: locale.value === 'en', onUpdateChecked() { setLocale('en') } }
-    ]
-  ]
-})
-
 const addMenuItems = computed(() => [
   [
     { label: t('app.upload'), icon: 'i-lucide-upload', onSelect() { fileInput.value?.click() } },
@@ -2349,34 +2286,6 @@ const addMenuItems = computed(() => [
     { label: t('app.create'), icon: 'i-lucide-folder-plus', onSelect() { showCreate.value = true } }
   ]
 ])
-
-const menuItems = computed(() => [
-  [
-    { type: 'label' as const, label: user.value?.email || t('app.notLoggedIn') }
-  ],
-  [
-    { type: 'label' as const, slot: 'storage', label: '' }
-  ],
-  [
-    { label: t('app.shareManager'), icon: 'i-lucide-share-2', onSelect: () => openShareManager() },
-    { label: t('app.settings'), icon: 'i-lucide-settings', to: '/settings' },
-    { label: t('app.logout'), icon: 'i-lucide-log-out', onSelect: () => logout() }
-  ]
-])
-
-/** 存储占用百分比（0-100，完全向上进位不舍，保留 1 位小数） */
-const storagePercent = computed(() => {
-  const used = Number(user.value?.storageUsed ?? 0)
-  const limit = Number(user.value?.storageLimit ?? 0)
-  if (limit <= 0) return 0
-  // 乘 10 后向上取整再除回：任何非零余数都进位，不舍弃
-  return Math.min(100, Math.max(0, Math.ceil((used / limit) * 1000) / 10))
-})
-
-/** 打开用户菜单时刷新最新存储占用 */
-function onUserMenuOpen(open: boolean) {
-  if (open) refreshStorage()
-}
 
 function openTrash() {
   const overlay = useOverlay()

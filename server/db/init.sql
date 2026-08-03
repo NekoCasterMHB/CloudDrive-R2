@@ -1,7 +1,14 @@
 -- ============================================================
--- CloudDrive R2 - 数据库初始化脚本（完整版）
--- 整合自 server/db/migrations/sqlite/ 0000~0005
--- 包含：文件/文件夹、回收站、上传、认证（better-auth）、用户设置、分享
+-- CloudDrive R2 - 数据库初始化脚本（唯一权威源，幂等）
+-- 覆盖全部表：文件/文件夹、回收站、上传、认证（better-auth）、
+--             用户设置、分享、用户组、全局系统设置
+--
+-- 本脚本是**唯一**数据库初始化入口（本地 / 云端通用，可安全重复执行）：
+--   本地：npx wrangler d1 execute clouddrive-db --local  --file=server/db/init.sql
+--   线上：npx wrangler d1 execute clouddrive-db --remote --file=server/db/init.sql
+--
+-- drizzle/ 目录下的迁移仅用于 drizzle-kit 增量 SQL 生成与参考，
+-- 部署/初始化**不依赖**它们（无需 `drizzle-kit migrate`）。
 -- ============================================================
 
 -- ── 文件（0000）────────────────────────────────────────────
@@ -75,11 +82,32 @@ CREATE TABLE IF NOT EXISTS `user` (
 	`email` text NOT NULL,
 	`email_verified` integer NOT NULL,
 	`image` text,
+	`role` text DEFAULT 'user',
+	`group_id` text,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS `user_email_unique` ON `user` (`email`);
+
+-- ── 用户组（0006，管理员统一配置）────────────────────────
+CREATE TABLE IF NOT EXISTS `user_groups` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`storage_limit` integer NOT NULL DEFAULT 0,
+	`can_change_password` integer NOT NULL DEFAULT 1,
+	`upload_chunk_size` integer NOT NULL DEFAULT 10485760,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL
+);
+
+-- ── 全局系统设置（允许新用户注册等 key-value）────────────────
+CREATE TABLE IF NOT EXISTS `system_settings` (
+	`key` text PRIMARY KEY NOT NULL,
+	`value` text NOT NULL,
+	`updated_at` integer NOT NULL
+);
+INSERT OR IGNORE INTO `system_settings` (`key`, `value`, `updated_at`) VALUES ('allow_register', 'false', 0);
 
 -- ── 会话（0003，better-auth）───────────────────────────────
 CREATE TABLE IF NOT EXISTS `session` (

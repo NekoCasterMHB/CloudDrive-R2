@@ -31,6 +31,9 @@ export function useAuth() {
     return {
       id: u.id,
       email: u.email,
+      name: (u as any).name || '',
+      role: (u as any).role || 'user',
+      groupId: (u as any).groupId || null,
       storageUsed: storage.value.used,
       storageLimit: storage.value.limit,
       createdAt: new Date((u as any).createdAt).getTime()

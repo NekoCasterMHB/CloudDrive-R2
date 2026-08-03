@@ -73,6 +73,24 @@ export const userSettings = sqliteTable('user_settings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
 })
 
+// 用户组（管理员统一配置：存储上限 / 可否改密码 / 分片大小等）
+export const userGroups = sqliteTable('user_groups', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  storageLimit: integer('storage_limit').notNull().default(0), // 0 = 无限制
+  canChangePassword: integer('can_change_password', { mode: 'boolean' }).notNull().default(true),
+  uploadChunkSize: integer('upload_chunk_size').notNull().default(10 * 1024 * 1024), // 0 = 跟随个人默认
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
+})
+
+// 全局系统设置（key-value，value 为 JSON 字符串；如 allow_register 是否允许新用户注册）
+export const systemSettings = sqliteTable('system_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull()
+})
+
 // 分享（支持文件/文件夹混选，items 为 JSON：[{ id, type, name }]）
 export const shares = sqliteTable('shares', {
   id: text('id').primaryKey(),
