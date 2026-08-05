@@ -29,7 +29,12 @@ export interface StoredTask {
   time: number
 }
 
-export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { title: string, color?: string, icon?: string }) => void) {
+export function useUploader(
+  onDone?: (record?: any) => void,
+  onNotify?: (msg: { title: string, color?: string, icon?: string }) => void,
+  /** 存储空间不足（413）时触发，name 为被拒绝上传的文件名 */
+  onQuotaExceeded?: (name: string) => void
+) {
   const { t } = useI18n()
   const tasks = ref<UploadTask[]>([])
   const history = ref<StoredTask[]>(loadHistory())
@@ -257,7 +262,15 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
         processQueue()
         return
       }
-      // 优先展示服务端明确错误（如配额不足 413「存储空间不足」），否则回退到原始信息
+      // 存储空间不足（413）：从传输列表移除、不写入历史，改用模态框提示
+      if (e?.data?.statusCode === 413) {
+        const idx = tasks.value.findIndex(x => x.id === task.id)
+        if (idx !== -1) tasks.value.splice(idx, 1)
+        onQuotaExceeded?.(task.file.name)
+        processQueue()
+        return
+      }
+      // 优先展示服务端明确错误，否则回退到原始信息
       const serverMsg = e?.data?.message
       const errMsg = serverMsg || e?.message || 'Upload failed'
       task.status = 'error'

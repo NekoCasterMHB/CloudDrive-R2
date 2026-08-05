@@ -1044,6 +1044,17 @@ const { tasks, history, addFiles, clearHistory, removeHistory, togglePause, canc
   loadCurrent()
 }, (msg) => {
   toast.add({ title: msg.title, color: msg.color as any, icon: msg.icon })
+}, (name) => {
+  // 存储空间不足：用模态框提示，不放入传输列表/历史
+  showConfirm({
+    title: t('app.storageFullTitle'),
+    message: t('app.storageFullMessage', { name }),
+    icon: 'i-lucide-database',
+    confirmLabel: t('app.gotIt'),
+    confirmColor: 'error',
+    hideCancel: true,
+    onConfirm: async () => {}
+  })
 })
 const fileInput = ref<HTMLInputElement>()
 const folderInput = ref<HTMLInputElement>()
@@ -1057,7 +1068,10 @@ async function showConfirm(opts: {
   title: string
   message: string
   icon?: string
+  confirmLabel?: string
+  confirmColor?: 'error' | 'primary' | 'neutral'
   list?: { name: string, type: 'file' | 'folder' }[]
+  hideCancel?: boolean
   onConfirm: () => Promise<void>
 }): Promise<void> {
   const overlay = useOverlay()

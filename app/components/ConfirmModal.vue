@@ -15,6 +15,8 @@ withDefaults(defineProps<{
   cancelLabel?: string
   confirmColor?: 'error' | 'primary' | 'neutral'
   onConfirm?: () => Promise<void>
+  /** 仅确认模式：隐藏取消按钮（用于纯提示） */
+  hideCancel?: boolean
   /** 操作涉及的文件/文件夹列表（详细展示） */
   list?: ConfirmListItem[]
   /** 列表最多直接展示的条数，超出部分折叠显示 */
@@ -25,6 +27,7 @@ withDefaults(defineProps<{
   cancelLabel: undefined,
   confirmColor: 'error',
   onConfirm: undefined,
+  hideCancel: false,
   list: undefined,
   listMax: 8
 })
@@ -72,6 +75,7 @@ withDefaults(defineProps<{
     <template #footer>
       <div class="flex justify-end gap-2 w-full">
         <UButton
+          v-if="!hideCancel"
           color="neutral"
           variant="outline"
           :label="cancelLabel || t('app.cancel')"
