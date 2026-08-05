@@ -25,3 +25,5 @@ logs
 .data/
 .wrangler/
 .env copy
+wrangler copy.toml
+wrangler.toml

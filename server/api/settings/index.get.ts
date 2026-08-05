@@ -11,7 +11,8 @@ export const SETTINGS_DEFAULTS: Record<string, unknown> = {
   cacheEnabled: true,
   cacheMaxSize: 1024 * 1024 * 1024, // 1 GB
   cacheTypes: ['image', 'video', 'audio'],
-  storageLimit: DEFAULT_STORAGE_LIMIT
+  storageLimit: DEFAULT_STORAGE_LIMIT,
+  concurrentDownloads: 3 // 并发传输数（1-5）
 }
 
 export default defineEventHandler(async (event) => {

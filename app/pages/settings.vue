@@ -388,6 +388,21 @@
               :disabled="chunkSizeManaged"
             />
           </div>
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="font-medium">
+                {{ $t('app.concurrentDownloads') }}
+              </p>
+              <p class="text-xs text-gray-400 mt-0.5">
+                {{ $t('app.concurrentDownloadsHint') }}
+              </p>
+            </div>
+            <USelect
+              v-model="concurrentDownloads"
+              :items="concurrentOptions"
+              class="w-36 shrink-0"
+            />
+          </div>
         </div>
       </UCard>
 
@@ -591,6 +606,13 @@ const chunkOptions = [
 const chunkSize = computed({
   get: () => appSettings.value.uploadChunkSize,
   set: (v: number) => saveSettings({ uploadChunkSize: v })
+})
+
+// 并发传输数（1-5，默认 3）：影响同时下载/打包的文件数
+const concurrentOptions = [1, 2, 3, 4, 5].map(v => ({ label: String(v), value: v }))
+const concurrentDownloads = computed({
+  get: () => appSettings.value.concurrentDownloads,
+  set: (v: number) => saveSettings({ concurrentDownloads: v })
 })
 
 async function switchLocale(code: string) {

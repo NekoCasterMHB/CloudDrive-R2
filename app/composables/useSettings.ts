@@ -18,6 +18,8 @@ export interface AppSettings {
   cacheTypes: string[]
   /** 云盘存储上限（字节） */
   storageLimit: number
+  /** 并发传输数（默认 3，范围 1-5） */
+  concurrentDownloads: number
 }
 
 const DEFAULTS: AppSettings = {
@@ -25,7 +27,8 @@ const DEFAULTS: AppSettings = {
   cacheEnabled: true,
   cacheMaxSize: 1024 * 1024 * 1024,
   cacheTypes: ['image', 'video', 'audio'],
-  storageLimit: 1024 * 1024 * 1024 * 1024 // 1 TB
+  storageLimit: 1024 * 1024 * 1024 * 1024, // 1 TB
+  concurrentDownloads: 3
 }
 
 const LS_KEY = 'clouddrive_settings'
@@ -43,7 +46,10 @@ function loadLocal(): AppSettings {
       cacheTypes: Array.isArray(p.cacheTypes) && p.cacheTypes.length
         ? p.cacheTypes.filter((x: unknown) => typeof x === 'string')
         : [...DEFAULTS.cacheTypes],
-      storageLimit: typeof p.storageLimit === 'number' && p.storageLimit > 0 ? p.storageLimit : DEFAULTS.storageLimit
+      storageLimit: typeof p.storageLimit === 'number' && p.storageLimit > 0 ? p.storageLimit : DEFAULTS.storageLimit,
+      concurrentDownloads: typeof p.concurrentDownloads === 'number' && p.concurrentDownloads >= 1 && p.concurrentDownloads <= 5
+        ? Math.round(p.concurrentDownloads)
+        : DEFAULTS.concurrentDownloads
     }
   } catch {
     return { ...DEFAULTS }

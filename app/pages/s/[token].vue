@@ -168,11 +168,26 @@
             >
               {{ t('app.shareClearSelection') }}
             </UButton>
+            <!-- 传输列表入口（活动下载徽标） -->
+            <div class="relative">
+              <UButton
+                icon="i-lucide-arrow-up-down"
+                variant="subtle"
+                size="sm"
+                @click="showTransferSlideover = true"
+              />
+              <UBadge
+                v-if="activeDownloadCount > 0"
+                :label="String(activeDownloadCount)"
+                color="error"
+                size="sm"
+                class="absolute -top-1 -right-1 pointer-events-none"
+              />
+            </div>
             <UButton
               color="primary"
               size="sm"
               icon="i-lucide-archive"
-              :loading="zipping"
               :disabled="selected.size === 0"
               @click="confirmDownload"
             >
@@ -308,6 +323,101 @@
       </template>
     </main>
 
+    <!-- 传输列表（下载进度 + 速度 + 取消/保存） -->
+    <USlideover
+      v-model:open="showTransferSlideover"
+      :title="t('app.transfers')"
+    >
+      <template #body>
+        <div class="flex items-center justify-between px-1 pb-2">
+          <p class="text-xs text-gray-400">
+            {{ t('app.transfersHint') }}
+          </p>
+          <span class="flex items-center gap-1 text-xs text-gray-500 tabular-nums">
+            <UIcon
+              name="i-lucide-arrow-down"
+              class="text-blue-600 dark:text-blue-400"
+            />
+            <span>{{ formatSpeed(totalDownloadSpeed) }}</span>
+          </span>
+        </div>
+        <div
+          v-if="zipTasks.length === 0"
+          class="text-sm text-gray-400 text-center py-10"
+        >
+          {{ t('app.noTransfers') }}
+        </div>
+        <div class="space-y-1 px-1 py-2">
+          <div
+            v-for="item in zipTasks"
+            :key="item.id"
+            class="group flex items-center gap-3 px-3 py-2.5 relative overflow-hidden rounded-lg select-none"
+          >
+            <div
+              v-if="item.status === 'running'"
+              class="absolute inset-0 bg-blue-50 dark:bg-blue-950 rounded-lg transition-all duration-500"
+              :style="{ width: `${item.progress}%` }"
+            />
+            <UIcon
+              :name="item.status === 'error' ? 'i-lucide-alert-triangle' : (item.kind === 'file' ? 'i-lucide-download' : 'i-lucide-archive')"
+              class="text-lg shrink-0 relative"
+              :class="item.status === 'error' ? 'text-red-400' : 'text-gray-500'"
+            />
+            <div class="flex-1 min-w-0 relative">
+              <p class="text-sm truncate">{{ item.fileName }}</p>
+              <template v-if="item.status === 'running'">
+                <p class="text-xs text-gray-400 truncate">
+                  <template v-if="item.kind === 'file'">{{ t('app.downloading') }} {{ item.currentFile }}</template>
+                  <template v-else>{{ t('app.zipPacking') }} {{ item.fileIndex + 1 }}/{{ item.totalFiles }}：{{ item.currentFile }}</template>
+                </p>
+                <p class="text-xs text-gray-400 tabular-nums flex items-center gap-1.5 flex-wrap">{{ formatSizePair(item.doneBytes, item.totalBytes) }}<span v-if="item.kind === 'zip' && item.fileSize"> · {{ formatSizePair(item.fileDoneBytes, item.fileSize) }}</span><span v-if="item.speed" class="inline-flex items-center gap-0.5 text-blue-600 dark:text-blue-400"><UIcon name="i-lucide-arrow-down" class="size-3" /><span>{{ formatSpeed(item.speed) }}</span></span></p>
+              </template>
+              <p v-else-if="item.status === 'ready'" class="text-xs text-green-600 dark:text-green-400">{{ t('app.zipReady') }}</p>
+              <p v-else class="text-xs text-red-400">{{ item.error || t('app.failed') }}</p>
+            </div>
+            <span
+              v-if="item.status === 'running'"
+              class="text-xs text-blue-500 relative tabular-nums"
+            >{{ item.progress.toFixed(0) }}%</span>
+            <div
+              v-if="item.status === 'running'"
+              class="relative flex items-center gap-0.5 opacity-0 sm:opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <UButton
+                size="xs"
+                variant="ghost"
+                icon="i-lucide-x"
+                aria-label="Cancel"
+                @click.stop="cancelZipTask(item.id)"
+              />
+            </div>
+            <div
+              v-else
+              class="relative flex items-center gap-1"
+            >
+              <UButton
+                v-if="item.status === 'ready'"
+                size="xs"
+                color="primary"
+                variant="solid"
+                icon="i-lucide-download"
+                :label="t('app.save')"
+                @click.stop="saveZipTask(item.id)"
+              />
+              <UButton
+                v-if="item.status === 'error'"
+                size="xs"
+                variant="ghost"
+                icon="i-lucide-x"
+                aria-label="Dismiss"
+                @click.stop="cancelZipTask(item.id)"
+              />
+            </div>
+          </div>
+        </div>
+      </template>
+    </USlideover>
+
     <!-- 文件预览（与主页一致的预览机制） -->
     <FileViewer
       v-if="previewFileData"
@@ -320,10 +430,12 @@
 </template>
 
 <script setup lang="ts">
-import JSZip from 'jszip'
 import { h, resolveComponent, onBeforeUnmount } from 'vue'
 import { fileIcon } from '~/utils/fileIcons'
 import { LazyConfirmModal } from '#components'
+import { collectZipEntries, pickFsaTarget, createOpfsTarget, saveOpfsToDisk, removeOpfsFile, streamZipToTarget, streamUrlToTarget, downloadBlobWithProgress, downloadFileRangeParallel, supportDirectoryPicker, pickDirectory, copyEntriesConcurrent, type ZipEntry, type ZipProgress } from '~/composables/useZipDownload'
+import { trackSpeed, formatSpeed } from '~/utils/speed'
+import { formatSizePair } from '~/utils/format'
 
 definePageMeta({ layout: false })
 
@@ -375,7 +487,6 @@ const items = computed<ListItem[]>(() => getLocalChildren(currentFolderId.value)
 
 // 多选状态
 const selected = ref<Set<string>>(new Set())
-const zipping = ref(false)
 const allSelected = computed(() => items.value.length > 0 && items.value.every(i => selected.value.has(i.id)))
 
 // 视图切换（宫格 / 列表）
@@ -556,37 +667,250 @@ function closePreview() {
   previewFileData.value = null
 }
 
-function downloadFile(item: ListItem) {
-  window.open(`/api/share/${token}/download?fileId=${item.id}`, '_blank')
+// ===== 流式下载 / 打包 + 传输列表（与主界面同款逻辑） =====
+interface ZipTask {
+  id: string
+  kind: 'zip' | 'file' | 'dir'
+  fileName: string
+  status: 'running' | 'ready' | 'error'
+  totalBytes: number
+  doneBytes: number
+  totalFiles: number
+  fileIndex: number
+  currentFile: string
+  fileDoneBytes: number
+  fileSize: number
+  progress: number
+  opfsName?: string
+  error?: string
+  abort?: AbortController
+  speed?: number
+}
+const zipTasks = ref<ZipTask[]>([])
+const showTransferSlideover = ref(false)
+const activeDownloadCount = computed(() => zipTasks.value.filter(t => t.status === 'running').length)
+// 总下载速度（B/s）
+const totalDownloadSpeed = computed(() =>
+  zipTasks.value.filter(t => t.status === 'running').reduce((s, t) => s + (t.speed || 0), 0)
+)
+/** 分享文件下载 URL */
+const getFileUrl = (id: string) => `/api/share/${token}/download?fileId=${id}`
+/** 分享页并发数：未登录用户固定 3（不读取个人设置） */
+const DOWNLOAD_CONCURRENCY = 3
+
+function updateZipTask(id: string, patch: Partial<ZipTask>) {
+  const t = zipTasks.value.find(t => t.id === id)
+  if (t) Object.assign(t, patch)
 }
 
-/** 下载单个项：文件直接下载；文件夹递归打包为 zip（{文件夹名}.zip） */
+function downloadFile(item: ListItem) {
+  if (item.type !== 'file') return
+  startFileDownload(item)
+}
+
+/** 下载单个项：文件直接下载；文件夹流式打包为 zip */
 async function downloadItem(item: ListItem) {
-  if (item.type === 'file') {
-    downloadFile(item)
+  if (item.type === 'folder') {
+    await startZipDownload([item], `${item.name}.zip`)
     return
   }
-  zipping.value = true
+  downloadFile(item)
+}
+
+/** 单文件下载：纳入传输列表跟踪（FSA 直写 / Blob 兜底） */
+async function startFileDownload(item: ListItem) {
+  const id = crypto.randomUUID()
+  const total = item.size || 0
+  const task: ZipTask = {
+    id, kind: 'file', fileName: item.name, status: 'running',
+    totalBytes: total, doneBytes: 0, totalFiles: 1, fileIndex: 0,
+    currentFile: item.name, fileDoneBytes: 0, fileSize: total, progress: 0,
+    abort: new AbortController()
+  }
+  zipTasks.value.push(task)
+  showTransferSlideover.value = true // 创建任务后打开传输列表
+  const onProgress = (done: number) => {
+    const t = zipTasks.value.find(x => x.id === id)
+    if (t) trackSpeed(t, done)
+    updateZipTask(id, {
+      doneBytes: done, fileDoneBytes: done,
+      progress: total ? Math.min(99, Math.round(done / total * 100)) : 99
+    })
+  }
   try {
-    const zip = new JSZip()
-    const folder = zip.folder(item.name)
-    if (folder) {
-      const children = getLocalChildren(item.id)
-      for (const child of children) {
-        await addToZip(folder, child, '')
+    const url = getFileUrl(item.id)
+    const fsaTarget = await pickFsaTarget(item.name)
+    if (fsaTarget) {
+      const concurrency = DOWNLOAD_CONCURRENCY
+      if (total > 5 * 1024 * 1024 && concurrency > 1) {
+        await downloadFileRangeParallel(url, total, fsaTarget, concurrency, onProgress, task.abort!.signal)
+      } else {
+        await streamUrlToTarget(url, fsaTarget, total, onProgress, task.abort!.signal)
       }
+      await fsaTarget.close()
+      zipTasks.value = zipTasks.value.filter(t => t.id !== id)
+      toast.add({ title: t('app.savedToLocation', { name: item.name }), icon: 'i-lucide-download', duration: 3000 })
+      return
     }
-    const blob = await zip.generateAsync({ type: 'blob' })
-    const url = URL.createObjectURL(blob)
+    const blob = await downloadBlobWithProgress(url, onProgress, task.abort!.signal)
+    const blobUrl = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
-    a.download = `${item.name}.zip`
+    a.href = blobUrl
+    a.download = item.name
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 2000)
+    zipTasks.value = zipTasks.value.filter(t => t.id !== id)
+    toast.add({ title: t('app.downloadDone', { name: item.name }), icon: 'i-lucide-download', duration: 3000 })
+  } catch (e: any) {
+    zipTasks.value = zipTasks.value.filter(t => t.id !== id)
+    if (e?.name === 'AbortError') return
+    toast.add({ title: t('app.downloadFailed', { name: item.name }), icon: 'i-lucide-alert-triangle', color: 'error', duration: 2500 })
+  }
+}
+
+/** 打包下载（单文件夹 / 多选 zip）：创建任务后立即返回，后台流式下载 */
+function startZipDownload(items: ListItem[], suggestedName: string) {
+  const entries = collectZipEntries(items, getLocalChildren)
+  const id = crypto.randomUUID()
+  const totalBytes = entries.reduce((s, e) => s + e.size, 0)
+  const task: ZipTask = {
+    id, kind: 'zip', fileName: suggestedName, status: 'running',
+    totalBytes, doneBytes: 0, totalFiles: entries.length, fileIndex: 0,
+    currentFile: '', fileDoneBytes: 0, fileSize: 0, progress: 0,
+    abort: new AbortController()
+  }
+  zipTasks.value.push(task)
+  showTransferSlideover.value = true // 创建任务后立即打开传输列表
+  // 后台执行（picker 在用户手势内同步调用，不 await 以免阻塞模态框关闭）
+  runZipDownload(task, entries, suggestedName)
+}
+
+/** zip 流式下载（后台） */
+async function runZipDownload(task: ZipTask, entries: ZipEntry[], suggestedName: string) {
+  const onProgress = (p: ZipProgress) => {
+    const t = zipTasks.value.find(x => x.id === task.id)
+    if (t) trackSpeed(t, p.doneBytes)
+    updateZipTask(task.id, {
+      doneBytes: p.doneBytes, fileIndex: p.fileIndex, currentFile: p.currentFile,
+      fileDoneBytes: p.fileDoneBytes, fileSize: p.fileSize,
+      progress: p.totalBytes ? Math.min(99, Math.round(p.doneBytes / p.totalBytes * 100)) : 99
+    })
+  }
+  const concurrency = DOWNLOAD_CONCURRENCY
+  try {
+    const fsaTarget = await pickFsaTarget(suggestedName)
+    if (fsaTarget) {
+      await streamZipToTarget(entries, fsaTarget, onProgress, task.abort!.signal, getFileUrl, concurrency)
+      await fsaTarget.close()
+      zipTasks.value = zipTasks.value.filter(t => t.id !== task.id)
+      toast.add({ title: t('app.savedToLocation', { name: suggestedName }), icon: 'i-lucide-archive', duration: 3000 })
+      return
+    }
+    const opfsName = `zip-${task.id}.zip`
+    const opfsTarget = await createOpfsTarget(opfsName)
+    if (opfsTarget) {
+      await streamZipToTarget(entries, opfsTarget, onProgress, task.abort!.signal, getFileUrl, concurrency)
+      await opfsTarget.close()
+      updateZipTask(task.id, { status: 'ready', opfsName, progress: 100 })
+      toast.add({ title: t('app.zipDone', { name: suggestedName }), icon: 'i-lucide-archive' })
+      return
+    }
+    throw new Error('当前浏览器不支持流式下载')
+  } catch (e: any) {
+    if (task.opfsName) removeOpfsFile(task.opfsName)
+    zipTasks.value = zipTasks.value.filter(t => t.id !== task.id)
+    if (e?.name === 'AbortError') return
+    toast.add({ title: t('app.zipFailedName', { name: suggestedName }), icon: 'i-lucide-alert-triangle', color: 'error', duration: 2500 })
+  }
+}
+
+/** 多选原样（不压缩）复制到所选目录：每个文件单独任务 */
+function startRawDownload(items: ListItem[]) {
+  runRawDownload(items) // picker 在用户手势内同步调用
+}
+
+/** 多选复制到目录（后台） */
+async function runRawDownload(items: ListItem[]) {
+  let dirHandle: FileSystemDirectoryHandle | null = null
+  try {
+    dirHandle = await pickDirectory()
   } catch {
-    toast.add({ title: t('app.shareZipFailed'), icon: 'i-lucide-alert-triangle', color: 'error', duration: 2500 })
-  } finally {
-    zipping.value = false
+    return
+  }
+  if (!dirHandle) {
+    startZipDownload(items, `${token}.zip`)
+    return
+  }
+  const entries = collectZipEntries(items, getLocalChildren)
+  if (!entries.length) {
+    toast.add({ title: t('app.noDownloadableFiles'), color: 'error', icon: 'i-lucide-alert-triangle', duration: 2500 })
+    return
+  }
+  const tasks: ZipTask[] = entries.map((entry) => {
+    const id = crypto.randomUUID()
+    return {
+      id, kind: 'file', fileName: entry.name.split('/').pop() || entry.name, status: 'running',
+      totalBytes: entry.size, doneBytes: 0, totalFiles: 1, fileIndex: 0,
+      currentFile: entry.name, fileDoneBytes: 0, fileSize: entry.size, progress: 0,
+      abort: new AbortController()
+    }
+  })
+  zipTasks.value.push(...tasks)
+  showTransferSlideover.value = true // 创建任务后打开传输列表
+  const concurrency = DOWNLOAD_CONCURRENCY
+  let failed = 0
+  await copyEntriesConcurrent(
+    entries,
+    dirHandle,
+    concurrency,
+    (i, entry, done) => {
+      const task = tasks[i]
+      if (!task) return
+      const t = zipTasks.value.find(x => x.id === task.id)
+      if (t) trackSpeed(t, done)
+      updateZipTask(task.id, {
+        doneBytes: done, fileDoneBytes: done,
+        progress: entry.size ? Math.min(99, Math.round(done / entry.size * 100)) : 99
+      })
+    },
+    (i, _entry, ok, err) => {
+      const task = tasks[i]
+      if (!task) return
+      zipTasks.value = zipTasks.value.filter(t => t.id !== task.id)
+      if (ok) return
+      if (err?.name !== 'AbortError') failed++
+    },
+    undefined,
+    getFileUrl,
+    (i) => tasks[i]?.abort?.signal
+  )
+  if (failed > 0) {
+    toast.add({ title: t('app.batchFailed', { count: failed }), color: 'error', icon: 'i-lucide-alert-triangle', duration: 2500 })
+  } else {
+    toast.add({ title: t('app.downloadedToFolder', { count: entries.length, folder: dirHandle.name }), icon: 'i-lucide-folder-down', duration: 3000 })
+  }
+}
+
+function cancelZipTask(id: string) {
+  const t = zipTasks.value.find(t => t.id === id)
+  if (!t) return
+  t.abort?.abort()
+  if (t.opfsName) removeOpfsFile(t.opfsName)
+  zipTasks.value = zipTasks.value.filter(x => x.id !== id)
+}
+
+/** 保存 OPFS 兜底暂存的 zip */
+async function saveZipTask(id: string) {
+  const zipTask = zipTasks.value.find(x => x.id === id)
+  if (!zipTask?.opfsName) return
+  try {
+    await saveOpfsToDisk(zipTask.opfsName, zipTask.fileName)
+    zipTasks.value = zipTasks.value.filter(x => x.id !== id)
+    toast.add({ title: t('app.savedName', { name: zipTask.fileName }), icon: 'i-lucide-circle-check', duration: 3000 })
+  } catch {
+    toast.add({ title: t('app.saveFailedName', { name: zipTask.fileName }), icon: 'i-lucide-alert-triangle', color: 'error', duration: 2500 })
   }
 }
 
@@ -888,25 +1212,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('click', onRubberClickCapture, true)
 })
 
-/** 递归把分享项加入 zip（文件直接拉取，文件夹递归其子项） */
-async function addToZip(zip: JSZip, item: ListItem, prefix: string) {
-  if (item.type === 'file') {
-    const res = await fetch(`/api/share/${token}/download?fileId=${item.id}`)
-    if (!res.ok) throw new Error(`下载失败: ${item.name}`)
-    const blob = await res.blob()
-    zip.file(prefix + item.name, blob)
-  } else {
-    const folder = zip.folder(prefix + item.name)
-    if (!folder) return
-    // 用本地索引递归子项，避免打包时逐个请求
-    const children = getLocalChildren(item.id)
-    for (const child of children) {
-      await addToZip(folder, child, '')
-    }
-  }
-}
-
-/** 批量打包下载选中项（带二次确认框） */
+/** 批量下载选中项（带二次确认框） */
 async function confirmDownload() {
   const chosen = items.value.filter(i => selected.value.has(i.id))
   if (!chosen.length) return
@@ -926,28 +1232,16 @@ async function confirmDownload() {
   })
 }
 
-async function downloadSelected() {
-  if (selected.value.size === 0) return
-  zipping.value = true
-  try {
-    const zip = new JSZip()
-    const chosen = items.value.filter(i => selected.value.has(i.id))
-    for (const item of chosen) {
-      await addToZip(zip, item, '')
-    }
-    const blob = await zip.generateAsync({ type: 'blob' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    // zip 文件名 = 分享链接中的 token，如 5EyaWjLXAn.zip
-    a.download = `${token}.zip`
-    a.click()
-    URL.revokeObjectURL(url)
-  } catch {
-    toast.add({ title: t('app.shareZipFailed'), icon: 'i-lucide-alert-triangle', color: 'error', duration: 2500 })
-  } finally {
-    zipping.value = false
+/** 多选批量下载：支持目录选择器时原样复制到目录，否则 zip 打包 */
+function downloadSelected() {
+  const chosen = items.value.filter(i => selected.value.has(i.id))
+  if (!chosen.length) return
+  // 创建任务后立即返回（不 await 下载），让确认模态框马上关闭、传输列表随即打开
+  if (supportDirectoryPicker()) {
+    startRawDownload(chosen)
+    return
   }
+  startZipDownload(chosen, `${token}.zip`)
 }
 
 onMounted(init)

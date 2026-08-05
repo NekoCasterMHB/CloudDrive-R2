@@ -28,6 +28,7 @@
     "@vite-pwa/nuxt": "^1.1.1",
     "better-auth": "1.6.25",
     "drizzle-orm": "^0.45.2",
+    "fflate": "^0.8.3",
     "jszip": "^3.10.1",
     "nuxt": "^4.5.1",
     "pdfjs-dist": "^6.1.200",

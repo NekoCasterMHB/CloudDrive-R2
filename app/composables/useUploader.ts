@@ -3,6 +3,7 @@
  * 支持小文件直传 / 大文件分片上传
  */
 import { useFileCache } from './useFileCache'
+import { trackSpeed } from '~/utils/speed'
 
 export interface UploadTask {
   id: string
@@ -14,6 +15,7 @@ export interface UploadTask {
   sessionId?: string // R2 Multipart Upload 会话（断点续传）
   uploadedBytes?: number
   error?: string
+  speed?: number // 瞬时传输速度（B/s）
 }
 
 export interface StoredTask {
@@ -28,6 +30,7 @@ export interface StoredTask {
 }
 
 export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { title: string, color?: string, icon?: string }) => void) {
+  const { t } = useI18n()
   const tasks = ref<UploadTask[]>([])
   const history = ref<StoredTask[]>(loadHistory())
   // 用于上传完成后将文件写入本地缓存（缩略图显示"已缓存"绿点）
@@ -35,6 +38,9 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
   const maxConcurrent = 2
   // 任务级 AbortController（暂停/取消）
   const taskControllers = new Map<string, AbortController>()
+  // 上传进度节流：xhr.onprogress 可能极高频率，限制 UI 更新节奏
+  const progressThrottle = new WeakMap<object, number>()
+  const PROGRESS_INTERVAL_MS = 250
 
   function loadHistory(): StoredTask[] {
     let items: StoredTask[] = []
@@ -157,8 +163,14 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
 
         const updateProgress = (partSent: number) => {
           const totalUploaded = Math.min(start + partSent, task.file.size)
+          const now = Date.now()
+          const last = progressThrottle.get(task) || 0
+          // 未到节流间隔且未完成时跳过（完成时强制更新一次，保证 100% 落库）
+          if (now - last < PROGRESS_INTERVAL_MS && totalUploaded < task.file.size) return
+          progressThrottle.set(task, now)
           task.uploadedBytes = Math.max(task.uploadedBytes || 0, totalUploaded)
           task.progress = Math.min(99, Math.round((task.uploadedBytes / task.file.size) * 100))
+          trackSpeed(task, task.uploadedBytes)
         }
 
         // 分片开始发送时先给基线进度，避免长时间停在 0
@@ -235,7 +247,7 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
       })
       if (history.value.length > 100) history.value.pop()
       saveHistory()
-      onNotify?.({ title: `${task.file.name} 上传完成`, icon: 'i-lucide-circle-check' })
+      onNotify?.({ title: t('app.uploadDone', { name: task.file.name }), icon: 'i-lucide-circle-check' })
       onDone?.(uploadRes)
     } catch (e: any) {
       taskControllers.delete(task.id)
@@ -259,7 +271,7 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
       })
       if (history.value.length > 100) history.value.pop()
       saveHistory()
-      onNotify?.({ title: `${task.file.name} 上传失败`, color: 'error', icon: 'i-lucide-circle-x' })
+      onNotify?.({ title: t('app.uploadFailed', { name: task.file.name }), color: 'error', icon: 'i-lucide-circle-x' })
     }
 
     // 继续处理队列
@@ -274,11 +286,11 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
       taskControllers.get(id)?.abort()
       taskControllers.delete(id)
       task.status = 'paused'
-      onNotify?.({ title: `${task.file.name} 已暂停`, icon: 'i-lucide-pause' })
+      onNotify?.({ title: t('app.pausedName', { name: task.file.name }), icon: 'i-lucide-pause' })
       processQueue()
     } else if (task.status === 'paused') {
       task.status = 'uploading'
-      onNotify?.({ title: `${task.file.name} 已继续`, icon: 'i-lucide-play' })
+      onNotify?.({ title: t('app.resumedName', { name: task.file.name }), icon: 'i-lucide-play' })
       uploadFile(task)
     }
   }
@@ -306,7 +318,7 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
     })
     if (history.value.length > 100) history.value.pop()
     saveHistory()
-    onNotify?.({ title: `${task.file.name} 已取消`, icon: 'i-lucide-x' })
+    onNotify?.({ title: t('app.cancelledName', { name: task.file.name }), icon: 'i-lucide-x' })
   }
 
   /** 移除已完成/失败的任务 */
@@ -318,7 +330,7 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
   function clearHistory() {
     history.value = []
     saveHistory()
-    onNotify?.({ title: '历史记录已清空', icon: 'i-lucide-trash-2' })
+    onNotify?.({ title: t('app.historyCleared'), icon: 'i-lucide-trash-2' })
   }
 
   /** 删除单条历史记录 */
@@ -326,7 +338,7 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
     const item = history.value.find(h => h.id === id)
     history.value = history.value.filter(h => h.id !== id)
     saveHistory()
-    onNotify?.({ title: `${item?.fileName || '任务'} 已删除`, icon: 'i-lucide-trash-2' })
+    onNotify?.({ title: t('app.deletedName', { name: item?.fileName || t('app.task') }), icon: 'i-lucide-trash-2' })
   }
 
   return { tasks, history, addFiles, clearDone, clearHistory, removeHistory, togglePause, cancelTask, saveHistory }
