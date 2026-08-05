@@ -47,6 +47,28 @@ export function useUploader(
   const progressThrottle = new WeakMap<object, number>()
   const PROGRESS_INTERVAL_MS = 250
 
+  // 上传成功通知防抖聚合：5 秒窗口内只显示一条，成功文件合并为一个消息
+  let successToastTimer: ReturnType<typeof setTimeout> | null = null
+  const successToastNames: string[] = []
+  const SUCCESS_TOAST_WINDOW_MS = 5000
+  function notifyUploadSuccess(name: string) {
+    successToastNames.push(name)
+    if (successToastTimer) clearTimeout(successToastTimer)
+    successToastTimer = setTimeout(() => {
+      successToastTimer = null
+      const names = successToastNames.splice(0)
+      if (names.length === 0) return
+      if (names.length === 1) {
+        onNotify?.({ title: t('app.uploadDone', { name: names[0] }), icon: 'i-lucide-circle-check' })
+      } else {
+        onNotify?.({
+          title: t('app.uploadDoneBatch', { count: names.length, first: names[0] }),
+          icon: 'i-lucide-circle-check'
+        })
+      }
+    }, SUCCESS_TOAST_WINDOW_MS)
+  }
+
   function loadHistory(): StoredTask[] {
     let items: StoredTask[] = []
     try {
@@ -252,7 +274,8 @@ export function useUploader(
       })
       if (history.value.length > 100) history.value.pop()
       saveHistory()
-      onNotify?.({ title: t('app.uploadDone', { name: task.file.name }), icon: 'i-lucide-circle-check' })
+      // 成功 toast 走 5 秒防抖合并，避免批量上传时每个文件弹一条
+      notifyUploadSuccess(task.file.name)
       onDone?.(uploadRes)
     } catch (e: any) {
       taskControllers.delete(task.id)
@@ -273,6 +296,12 @@ export function useUploader(
       // 优先展示服务端明确错误，否则回退到原始信息
       const serverMsg = e?.data?.message
       const errMsg = serverMsg || e?.message || 'Upload failed'
+      // 上传失败：释放 Multipart 会话（中止 R2 分片 + 标记 cancelled），
+      // 否则会话会持续占用存储配额，导致可用空间被顶满
+      if (task.sessionId) {
+        $fetch('/api/upload/abort', { method: 'POST', body: { sessionId: task.sessionId } }).catch(() => {})
+        task.sessionId = undefined
+      }
       task.status = 'error'
       task.error = errMsg
       history.value.unshift({

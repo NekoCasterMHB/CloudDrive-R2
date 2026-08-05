@@ -75,6 +75,26 @@ function idbSet(key: string, value: unknown): Promise<void> {
   }))
 }
 
+function idbDelete(key: string): Promise<void> {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    tx.objectStore(STORE_NAME).delete(key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  }))
+}
+
+// 模块级共享状态：所有调用方（主页面 / 设置页等）共享同一份文件索引。
+// 否则 settings 页点「同步索引」只更新自己实例的内存索引 + IndexedDB，
+// 主页面内存索引仍是旧的，仍会请求已删除文件的缩略图/预览导致 404。
+const items = ref<IndexItem[]>([])
+const ready = ref(false)
+const loading = ref(false)
+const childrenMap = ref<Record<string, IndexItem[]>>({})
+const itemMap = ref<Record<string, IndexItem>>({})
+// 上次全量同步时间（localStorage 持久化）
+const lastSyncAt = ref<number | null>(null)
+
 export function useFileIndex() {
   const { user } = useAuth()
   // 按当前登录用户隔离索引缓存
@@ -83,13 +103,10 @@ export function useFileIndex() {
   const syncKey = computed(() => `last_full_sync:${uid.value}`)
   const lastSyncLsKey = computed(() => `${LAST_SYNC_LS_PREFIX}${uid.value}`)
 
-  const items = ref<IndexItem[]>([])
-  const ready = ref(false)
-  const loading = ref(false)
-  const childrenMap = ref<Record<string, IndexItem[]>>({})
-  const itemMap = ref<Record<string, IndexItem>>({})
-  // 上次全量同步时间（localStorage 持久化）
-  const lastSyncAt = ref<number | null>(loadLastSyncLs(lastSyncLsKey.value))
+  // 首次调用时按当前用户初始化上次同步时间
+  if (lastSyncAt.value === null) {
+    lastSyncAt.value = loadLastSyncLs(lastSyncLsKey.value)
+  }
 
   // 用户切换/登录完成后重置本地索引并重新同步
   // （解决 session 异步加载时 onMounted 触发同步失败导致的空索引）
@@ -270,5 +287,43 @@ export function useFileIndex() {
     persist()
   }
 
-  return { items, ready, loading, lastSyncAt, loadAll, fullSync, syncItem, getChildren, getItem, upsertItem, addItem, removeItem }
+  /** 递归移除文件夹及其全部后代（文件 + 子文件夹），并持久化（返回 Promise 供 await） */
+  function removeItemsDeep(id: string) {
+    const ids = new Set<string>()
+    const queue = [id]
+    while (queue.length) {
+      const cur = queue.shift()!
+      if (ids.has(cur)) continue
+      ids.add(cur)
+      for (const child of items.value.filter(i => i.parentId === cur)) queue.push(child.id)
+    }
+    items.value = items.value.filter(i => !ids.has(i.id))
+    buildMaps()
+    return persist()
+  }
+
+  /** 清空本地索引缓存（IndexedDB + localStorage + 内存），下次加载将重新以服务端为准全量同步 */
+  async function clearIndexCache() {
+    try {
+      await idbDelete(itemsKey.value)
+      await idbDelete(syncKey.value)
+    } catch {
+      // 删除失败忽略，随后 persist 空数组覆盖
+    }
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem(lastSyncLsKey.value)
+      } catch {
+        // 忽略
+      }
+    }
+    items.value = []
+    ready.value = false
+    childrenMap.value = {}
+    itemMap.value = {}
+    lastSyncAt.value = null
+    await persist()
+  }
+
+  return { items, ready, loading, lastSyncAt, loadAll, fullSync, syncItem, getChildren, getItem, upsertItem, addItem, removeItem, removeItemsDeep, clearIndexCache }
 }

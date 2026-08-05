@@ -7,10 +7,16 @@ const { t } = useI18n()
 const emit = defineEmits<{ close: [target: { id: string | null, name: string } | null] }>()
 
 // 由父级传入已加载的索引访问器（避免独立实例未同步）
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   getChildren: (parentId: string | null) => { id: string, type: string, name: string }[]
   getItem: (id: string) => { name: string } | undefined
-}>()
+  /** 自定义标题（如「还原到」），默认「移动到」 */
+  title?: string
+  /** 确认按钮文案（如「还原到此」），默认「移动到此处」 */
+  confirmLabel?: string
+  /** 新建文件夹（可选）：在当前目录下创建并返回新文件夹 */
+  createFolder?: (name: string, parentId: string | null) => Promise<{ id: string, name: string } | null>
+}>(), { title: undefined, confirmLabel: undefined, createFolder: undefined })
 
 // 导航路径（null = 根目录）
 const path = ref<(string | null)[]>([null])
@@ -19,6 +25,13 @@ const crumbs = computed(() => path.value.map((id) => ({
   id,
   name: id === null ? t('app.root') : (props.getItem(id)?.name || '')
 })))
+
+// 本地新建的文件夹（合并显示，无需等待索引刷新）
+const showCreate = ref(false)
+const newName = ref('')
+const creating = ref(false)
+
+// 直接读取索引（createFolderIn 已同步到索引），避免与本地缓存重复显示
 const subFolders = computed(() => props.getChildren(currentId.value).filter(f => f.type === 'folder'))
 
 function enterFolder(id: string) {
@@ -34,10 +47,26 @@ function confirm() {
 function cancel() {
   emit('close', null)
 }
+
+/** 在当前目录下新建文件夹，成功后立即显示并保持可选中 */
+async function createNewFolder() {
+  const name = newName.value.trim()
+  if (!name || creating.value || !props.createFolder) return
+  creating.value = true
+  try {
+    const res = await props.createFolder(name, currentId.value)
+    if (res?.id) {
+      newName.value = ''
+      showCreate.value = false
+    }
+  } finally {
+    creating.value = false
+  }
+}
 </script>
 
 <template>
-  <UModal :title="t('app.moveTo')">
+  <UModal :title="props.title || t('app.moveTo')">
     <template #body>
       <!-- 面包屑 -->
       <div class="mb-3 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-sm text-gray-500">
@@ -86,18 +115,50 @@ function cancel() {
       </div>
     </template>
     <template #footer>
-      <div class="flex justify-end gap-2">
-        <UButton
-          variant="ghost"
-          :label="t('app.cancel')"
-          @click="cancel"
-        />
-        <UButton
-          color="primary"
-          icon="i-lucide-folder-input"
-          :label="t('app.moveHere')"
-          @click="confirm"
-        />
+      <div class="flex items-center justify-between gap-2 w-full">
+        <!-- 左侧：新建文件夹 -->
+        <div class="flex items-center gap-2 min-w-0">
+          <UInput
+            v-if="showCreate"
+            v-model="newName"
+            :placeholder="t('app.folderName')"
+            size="sm"
+            class="w-40"
+            @keyup.enter="createNewFolder"
+          />
+          <UButton
+            v-if="showCreate"
+            size="sm"
+            color="primary"
+            icon="i-lucide-check"
+            :loading="creating"
+            :disabled="!newName.trim()"
+            @click="createNewFolder"
+          />
+          <UButton
+            v-else-if="props.createFolder"
+            size="sm"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-folder-plus"
+            :label="t('app.newFolder')"
+            @click="showCreate = true"
+          />
+        </div>
+        <!-- 右侧：取消 / 确认 -->
+        <div class="flex items-center gap-2 shrink-0">
+          <UButton
+            variant="ghost"
+            :label="t('app.cancel')"
+            @click="cancel"
+          />
+          <UButton
+            color="primary"
+            icon="i-lucide-folder-input"
+            :label="props.confirmLabel || t('app.moveHere')"
+            @click="confirm"
+          />
+        </div>
       </div>
     </template>
   </UModal>

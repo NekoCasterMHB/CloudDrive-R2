@@ -107,5 +107,5 @@ export function useAuth() {
     await navigateTo('/login')
   }
 
-  return { user, isAuthenticated, login, passwordLogin, verify, logout, refreshStorage, hasPassword, setPassword, changePassword }
+  return { user, isAuthenticated, storage, login, passwordLogin, verify, logout, refreshStorage, hasPassword, setPassword, changePassword }
 }

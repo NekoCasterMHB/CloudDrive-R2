@@ -953,12 +953,12 @@ import { getConcurrencySetting } from '~/utils/concurrency'
 
 definePageMeta({ middleware: 'auth' })
 
-const { user } = useAuth()
+const { user, storage, refreshStorage } = useAuth()
 const { t } = useI18n()
 const toast = useToast()
 const { loadPreview, removeThumbnail } = useFileCache()
 
-const { loading, loadAll, syncItem, getChildren, getItem, addItem, removeItem, items } = useFileIndex()
+const { loading, loadAll, fullSync, syncItem, getChildren, getItem, addItem, removeItem, removeItemsDeep, items } = useFileIndex()
 
 // 当前目录显示列表：独立于索引 items，避免覆盖导致索引持久化损坏
 const currentItems = ref<any[]>([])
@@ -1307,7 +1307,7 @@ async function openMovePicker() {
   const ids = Array.from(fileSelected)
   if (!ids.length) return
   const overlay = useOverlay()
-  const target = await overlay.create(LazyMoveFolderModal).open({ getChildren, getItem })
+  const target = await overlay.create(LazyMoveFolderModal).open({ getChildren, getItem, createFolder: createFolderIn })
   if (!target) return
   mobileMultiSelect.value = false
   confirmMoveToFolder(ids, target.id, target.name)
@@ -1666,12 +1666,16 @@ async function trashItem(item: any): Promise<void> {
         body: { id, type: it.type, originalPath: path }
       })
       names.push(it.name)
-      removeItem(id)
+      // 文件夹：递归移除本地索引中的全部后代，避免孤儿残留导致刷新后重现
+      if (it.type === 'folder') await removeItemsDeep(id)
+      else removeItem(id)
       // 同步清理该文件的封面帧缓存
       if (it.type === 'file') removeThumbnail(id)
     } catch { /* 单个失败继续下一个 */ }
   }
   clearFileSelection()
+  // 删除后以服务端为准重建索引（清除持久化缓存中的残留与写入竞态），确保刷新不再出现已删项
+  await fullSync()
   loadCurrent()
   if (names.length > 0) {
     toast.add({
@@ -1754,6 +1758,8 @@ function buildClipboardItems(item: any) {
 function enterClipboard(items: any[], mode: 'copy' | 'cut') {
   clipboard.value = { items, mode }
   clearFileSelection()
+  // 退出移动端多选模式：否则列表模式点击行会一直走「切换选择」而无法进入文件夹
+  mobileMultiSelect.value = false
   toast.add({
     title: mode === 'copy'
       ? `${t('app.copied')} ${items.length} ${t('app.items')}`
@@ -1795,6 +1801,8 @@ async function pasteClipboard() {
       duration: 3000
     })
     clearClipboard()
+    // 复位移动端多选状态，避免粘贴后列表模式无法进入文件夹
+    mobileMultiSelect.value = false
     loadCurrent()
   } catch (e: any) {
     toast.add({ title: e?.data?.message || t('app.pasteFailed'), color: 'error', icon: 'i-lucide-circle-x', duration: 3000 })
@@ -2382,13 +2390,50 @@ function openTransferFor(h: any) {
   showTransferSlideover.value = true
 }
 
-function onFilesSelected(e: Event) {
+async function onFilesSelected(e: Event) {
   const input = e.target as HTMLInputElement
-  if (input.files?.length) {
-    addFiles(Array.from(input.files), currentFolderId.value)
-    showTransferPopover.value = true
+  if (!input.files?.length) return
+  const files = Array.from(input.files)
+  // 上传前配额预检：超限直接拒绝
+  if (!(await checkUploadQuota(files))) {
     input.value = ''
+    return
   }
+  addFiles(files, currentFolderId.value)
+  showTransferPopover.value = true
+  input.value = ''
+}
+
+/**
+ * 上传前配额预检：累加待上传文件总大小（含拖入的整个文件夹），
+ * 超过可用空间则弹「存储空间不足」模态框并返回 false（不加入传输列表）。
+ * limit=0 表示无限制，跳过检查。
+ */
+async function checkUploadQuota(files: File[]): Promise<boolean> {
+  if (!files.length) return false
+  // 刷新最新占用（含进行中的上传会话与回收站未清除部分）
+  await refreshStorage()
+  const total = files.reduce((s, f) => s + (f.size || 0), 0)
+  const { used, limit } = storage.value
+  if (limit > 0 && used + total > limit) {
+    const available = Math.max(0, limit - used)
+    showConfirm({
+      title: t('app.storageFullTitle'),
+      message: available === 0
+        ? t('app.storageFullAtLimit', { used: formatSize(used), limit: formatSize(limit) })
+        : t('app.storageFullPrecheck', {
+          total: formatSize(total),
+          available: formatSize(available)
+        }),
+      icon: 'i-lucide-database',
+      confirmLabel: t('app.gotIt'),
+      confirmColor: 'error',
+      hideCancel: true,
+      onConfirm: async () => {}
+    })
+    return false
+  }
+  return true
 }
 
 /**
@@ -2425,6 +2470,9 @@ function walkFileEntry(entry: any): Promise<{ file: File, path: string }[]> {
 }
 
 async function handleDroppedFiles(files: File[], pathMap?: Map<File, string>, targetFolderId?: string | null) {
+  // 上传前配额预检：累加待上传文件总大小，超限直接拒绝（不建文件夹、不加入传输列表）
+  if (!(await checkUploadQuota(files))) return
+
   // 目标文件夹：外部拖到文件夹上时传入该文件夹 id，否则用当前文件夹
   const baseFolderId = targetFolderId ?? currentFolderId.value
   const getPath = (f: File) => (pathMap?.get(f)) || f.webkitRelativePath || ''
@@ -2787,9 +2835,16 @@ const addMenuItems = computed(() => [
 function openTrash() {
   const overlay = useOverlay()
   overlay.create(LazyTrashModal).open({
-    onRestored: (record) => {
+    getChildren,
+    getItem,
+    createFolder: createFolderIn,
+    onRestored: async (record) => {
       if (record?.id) syncItem(record)
+      // 整体还原可能带回文件夹内部的文件/子文件夹，以服务端为准重建索引
+      await fullSync()
       loadCurrent()
+      // 清空回收站/还原后刷新右上角配额显示
+      await refreshStorage()
     }
   })
 }
@@ -2902,6 +2957,14 @@ async function createFolder() {
     addItem(folder)
     loadCurrent()
   } finally { creating.value = false }
+}
+
+/** 在指定目录下新建文件夹（供还原/移动位置选择器使用），创建后同步本地索引 */
+async function createFolderIn(name: string, parentId: string | null) {
+  const folder = await $fetch<any>('/api/folders', { method: 'POST', body: { name, parentId } })
+  addItem(folder)
+  loadCurrent()
+  return { id: folder.id, name: folder.name }
 }
 
 function formatSize(bytes: number): string {

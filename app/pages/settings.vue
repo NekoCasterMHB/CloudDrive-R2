@@ -620,7 +620,7 @@ async function switchLocale(code: string) {
 }
 
 // 同步文件索引
-const { fullSync, lastSyncAt } = useFileIndex()
+const { fullSync, lastSyncAt, clearIndexCache } = useFileIndex()
 const syncing = ref(false)
 const lastSyncDisplay = computed(() => {
   if (!lastSyncAt.value) return t('app.neverSynced')
@@ -631,6 +631,9 @@ const lastSyncDisplay = computed(() => {
 async function syncIndex() {
   syncing.value = true
   try {
+    // 先清空本地索引缓存（IndexedDB/localStorage/内存），再以服务端为准全量重建，
+    // 彻底清除已删除文件在本地缓存的残留引用（否则刷新主页仍会请求旧 id 导致 404）
+    await clearIndexCache()
     await fullSync()
     toast.add({ title: t('app.indexSynced'), icon: 'i-lucide-circle-check', duration: 2500 })
   } finally {

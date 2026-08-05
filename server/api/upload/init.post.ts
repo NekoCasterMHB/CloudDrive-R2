@@ -20,7 +20,11 @@ export default defineEventHandler(async (event) => {
   // TODO: real userId from session
   const userId = await requireUserId(event)
 
-  // 存储配额拦截：实际占用（含回收站未清除部分）+ 本次文件 > 配额（limit>0）则拒绝上传
+  // 先清理超期未完成的孤儿上传会话（释放其占用的配额），再创建新会话
+  const { cleanupStaleSessions } = await import('../../utils/upload-cleanup')
+  await cleanupStaleSessions(userId)
+
+  // 存储配额拦截：实际占用（含回收站未清除部分 + 进行中的上传会话）+ 本次文件 > 配额（limit>0）则拒绝上传
   const { used, limit } = await getStorageQuota(userId)
   if (limit > 0 && used + size > limit) {
     throw createError({
