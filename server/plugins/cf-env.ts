@@ -15,4 +15,11 @@ export default defineNitroPlugin((nitroApp) => {
       if (!g.__env__) g.__env__ = cf.env
     }
   })
+
+  // Cloudflare cron 定时任务：每天清理已过期的回收站记录（30 天），删除 R2 对象并释放使用量
+  // 对应 wrangler.toml [triggers] crons = ["0 3 * * *"]
+  nitroApp.hooks.hook('cloudflare:scheduled', async () => {
+    const { purgeExpiredTrash } = await import('../utils/trash-cleanup')
+    await purgeExpiredTrash()
+  })
 })

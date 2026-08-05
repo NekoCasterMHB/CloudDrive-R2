@@ -257,8 +257,11 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
         processQueue()
         return
       }
+      // 优先展示服务端明确错误（如配额不足 413「存储空间不足」），否则回退到原始信息
+      const serverMsg = e?.data?.message
+      const errMsg = serverMsg || e?.message || 'Upload failed'
       task.status = 'error'
-      task.error = e?.message || 'Upload failed'
+      task.error = errMsg
       history.value.unshift({
         id: task.id,
         fileName: task.file.name,
@@ -266,12 +269,16 @@ export function useUploader(onDone?: (record?: any) => void, onNotify?: (msg: { 
         folderId: task.folderId,
         type: task.type,
         status: 'error',
-        error: e?.message || 'Upload failed',
+        error: errMsg,
         time: Date.now()
       })
       if (history.value.length > 100) history.value.pop()
       saveHistory()
-      onNotify?.({ title: t('app.uploadFailed', { name: task.file.name }), color: 'error', icon: 'i-lucide-circle-x' })
+      onNotify?.({
+        title: serverMsg || t('app.uploadFailed', { name: task.file.name }),
+        color: 'error',
+        icon: 'i-lucide-circle-x'
+      })
     }
 
     // 继续处理队列

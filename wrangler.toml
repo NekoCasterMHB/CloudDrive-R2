@@ -28,3 +28,7 @@ name = "EMAIL"
 
 [observability]
 enabled = true
+
+# 定时任务：每天 03:00 (UTC) 清理已过期的回收站记录（30 天），删除 R2 对象并释放使用量
+[triggers]
+crons = ["0 3 * * *"]

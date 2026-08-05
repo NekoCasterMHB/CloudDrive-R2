@@ -3,6 +3,7 @@ import { db } from '@nuxthub/db'
 import { uploadSessions, userSettings } from '../../database/schema'
 import { and, eq } from 'drizzle-orm'
 import { r2CreateMultipartUpload } from '../../utils/r2'
+import { getStorageQuota } from '../../utils/quota'
 
 /** 按文件大小选择分片大小（文档策略） */
 function calcPartSize(fileSize: number): number {
@@ -18,6 +19,16 @@ export default defineEventHandler(async (event) => {
 
   // TODO: real userId from session
   const userId = await requireUserId(event)
+
+  // 存储配额拦截：实际占用（含回收站未清除部分）+ 本次文件 > 配额（limit>0）则拒绝上传
+  const { used, limit } = await getStorageQuota(userId)
+  if (limit > 0 && used + size > limit) {
+    throw createError({
+      statusCode: 413,
+      statusMessage: 'Payload Too Large',
+      message: '存储空间不足'
+    })
+  }
 
   // 分片大小：用户可在设置页配置（D1 settings.uploadChunkSize），未配置时按文件大小动态选择
   let partSize = calcPartSize(size)
