@@ -134,6 +134,7 @@
     "deleteForever": "Delete forever",
     "cached": "Already cached locally",
     "emptyTrash": "Empty trash",
+    "clearingTrash": "Emptying trash…",
     "trashClearPartial": "Some items failed to delete and were kept in trash. Try again later.",
     "confirmEmptyTrash": "Empty the trash? This will permanently delete all items and cannot be undone!",    "logout": "Logout",
     "account": "Account Info",

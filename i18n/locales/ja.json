@@ -133,6 +133,7 @@
     "deleteForever": "完全に削除",
     "cached": "ローカルにキャッシュ済み",
     "emptyTrash": "ゴミ箱を空にする",
+    "clearingTrash": "ゴミ箱を空にしています…",
     "trashClearPartial": "一部の削除に失敗しました。ゴミ箱に保持されているため、後で再試行できます。",
     "confirmEmptyTrash": "ゴミ箱を空にしますか？すべての項目が完全に削除され、元に戻せません！",
     "logout": "ログアウト",

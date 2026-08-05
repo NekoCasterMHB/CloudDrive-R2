@@ -17,6 +17,8 @@ withDefaults(defineProps<{
   onConfirm?: () => Promise<void>
   /** 仅确认模式：隐藏取消按钮（用于纯提示） */
   hideCancel?: boolean
+  /** 可选：清空回收站进度状态（响应式对象，删除期间在模态框内实时显示进度） */
+  progressState?: { progress: { done: number, total: number } | null }
   /** 操作涉及的文件/文件夹列表（详细展示） */
   list?: ConfirmListItem[]
   /** 列表最多直接展示的条数，超出部分折叠显示 */
@@ -28,6 +30,7 @@ withDefaults(defineProps<{
   confirmColor: 'error',
   onConfirm: undefined,
   hideCancel: false,
+  progressState: undefined,
   list: undefined,
   listMax: 8
 })
@@ -47,6 +50,26 @@ withDefaults(defineProps<{
           <p class="text-sm text-gray-600 dark:text-gray-400">
             {{ message }}
           </p>
+          <!-- 清空回收站进度（删除期间实时显示，直到完成后模态框自动关闭） -->
+          <div
+            v-if="progressState?.progress"
+            class="mt-3"
+          >
+            <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <span class="inline-flex items-center gap-1">
+                <UIcon
+                  name="i-lucide-loader-circle"
+                  class="size-3 animate-spin"
+                />
+                <span>{{ t('app.clearingTrash') }}</span>
+              </span>
+              <span v-if="progressState.progress.total > 0">{{ Math.round(progressState.progress.done / progressState.progress.total * 100) }}%</span>
+            </div>
+            <UProgress
+              :model-value="progressState.progress.total > 0 ? (progressState.progress.done / progressState.progress.total) * 100 : 0"
+              color="error"
+            />
+          </div>
           <div
             v-if="list && list.length"
             class="mt-3 max-h-52 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800"

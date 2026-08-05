@@ -18,6 +18,8 @@ const viewMode = ref<'grid' | 'list'>('list')
 
 const trashItems = ref<any[]>([])
 const trashLoading = ref(true)
+// 清空回收站进度（响应式对象，传给确认模态框在模态框内实时显示）
+const clearState = reactive<{ progress: { done: number, total: number } | null }>({ progress: null })
 
 // 层级浏览状态：当前所在路径段（[] = 回收站根层）
 const currentPath = ref<string[]>([])
@@ -181,7 +183,7 @@ async function deleteForever(id: string) {
   } catch { toast.add({ title: t('app.failed'), color: 'error', icon: 'i-lucide-circle-x', duration: 3000 }) }
 }
 
-/** 清空回收站：二次确认后永久删除所有记录与 R2 对象 */
+/** 清空回收站：二次确认后永久删除所有记录与 R2 对象；流式展示进度条 */
 async function clearTrash() {
   const overlay = useOverlay()
   await overlay.create(LazyConfirmModal).open({
@@ -190,10 +192,44 @@ async function clearTrash() {
     icon: 'i-lucide-trash-2',
     confirmLabel: t('app.emptyTrash'),
     confirmColor: 'error',
+    progressState: clearState,
     onConfirm: async () => {
       try {
-        const res = await $fetch<any>('/api/trash/clear', { method: 'DELETE' })
-        if (res?.failedCount > 0) {
+        clearState.progress = { done: 0, total: 0 }
+        const res = await fetch('/api/trash/clear', {
+          method: 'DELETE',
+          credentials: 'include'
+        })
+        if (!res.ok || !res.body) throw new Error('清空失败')
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let failedCount = 0
+        let finished = false
+        for (;;) {
+          const { value, done: streamDone } = await reader.read()
+          if (streamDone) break
+          buffer += decoder.decode(value, { stream: true })
+          let nl
+          while ((nl = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, nl).trim()
+            buffer = buffer.slice(nl + 1)
+            if (!line) continue
+            let payload: any
+            try { payload = JSON.parse(line) } catch { continue }
+            if (payload.type === 'done') {
+              finished = true
+              failedCount = payload.failedCount || 0
+              clearState.progress = { done: payload.total, total: payload.total }
+            } else if (payload.type === 'error') {
+              throw new Error(payload.message || '清空失败')
+            } else if (typeof payload.done === 'number') {
+              clearState.progress = { done: payload.done, total: payload.total }
+            }
+          }
+        }
+        clearState.progress = null
+        if (finished && failedCount > 0) {
           // 部分 R2 对象删除失败：保留记录以便重试，提示用户
           toast.add({ title: t('app.trashClearPartial'), color: 'error', icon: 'i-lucide-alert-triangle', duration: 3500 })
           loadTrash()
@@ -203,7 +239,10 @@ async function clearTrash() {
           currentPath.value = []
         }
         props.onRestored?.()
-      } catch { toast.add({ title: t('app.failed'), color: 'error', icon: 'i-lucide-circle-x', duration: 3000 }) }
+      } catch {
+        clearState.progress = null
+        toast.add({ title: t('app.failed'), color: 'error', icon: 'i-lucide-circle-x', duration: 3000 })
+      }
     }
   })
 }

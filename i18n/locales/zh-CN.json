@@ -135,6 +135,7 @@
     "deleteForever": "永久删除",
     "cached": "已经在本地缓存",
     "emptyTrash": "清空回收站",
+    "clearingTrash": "正在清空回收站…",
     "trashClearPartial": "部分对象删除失败，已保留在回收站，可稍后重试",
     "confirmEmptyTrash": "确定要清空回收站吗？清空后将永久删除所有文件，无法恢复！",
     "logout": "退出登录",

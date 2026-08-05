@@ -55,9 +55,9 @@ export default defineEventHandler(async (event) => {
       frontier = subs.map((f: any) => f.id)
     }
 
-    // 文件进回收站（保留真实大小与 objectKey，清空/单删时可删除 R2 释放空间）
-    for (const f of allFiles) {
-      await db.insert(trash).values({
+    // 批量构造回收站记录（文件带真实 size/objectKey；文件夹 fileId 存原 id 供还原关联）
+    const trashRows: any[] = [
+      ...allFiles.map((f: any) => ({
         id: crypto.randomUUID(),
         userId,
         fileId: f.id,
@@ -69,12 +69,8 @@ export default defineEventHandler(async (event) => {
         expiresAt,
         isFolder: false,
         objectKey: f.objectKey
-      })
-    }
-
-    // 文件夹进回收站（外壳，size=0；内部文件已单独计入）
-    for (const fo of allFolders) {
-      await db.insert(trash).values({
+      })),
+      ...allFolders.map((fo: any) => ({
         id: crypto.randomUUID(),
         userId,
         // fileId 对文件夹记录存「原文件夹 id」，供还原时按 folderId 精确关联其内部内容
@@ -86,15 +82,26 @@ export default defineEventHandler(async (event) => {
         deletedAt: now,
         expiresAt,
         isFolder: true
-      })
+      }))
+    ]
+
+    // 批量插入回收站。D1 每查询绑定参数上限为 100，多行 INSERT 每行 11 参数很快超限，
+    // 故改用 db.batch：一次请求打包多条「单行 insert」（每条 11 参数 < 100），兼顾批量与限制。
+    const INSERT_BATCH = 50 // 每条单行 insert 的绑定参数（11）远小于 100，50 条一批一次往返
+    for (let i = 0; i < trashRows.length; i += INSERT_BATCH) {
+      const stmts = trashRows.slice(i, i + INSERT_BATCH).map((r: any) => db.insert(trash).values(r))
+      await db.batch(stmts)
     }
 
-    // 删除文件与文件夹记录（先文件后文件夹；文件夹子级优先删除）
-    for (const f of allFiles) {
-      await db.delete(files).where(eq(files.id, f.id))
+    // 批量删除文件与文件夹记录（D1 绑定参数上限 100 → inArray 每批最多 100 个 id）
+    const DELETE_BATCH = 100
+    const fileIds = allFiles.map((f: any) => f.id)
+    for (let i = 0; i < fileIds.length; i += DELETE_BATCH) {
+      await db.delete(files).where(inArray(files.id, fileIds.slice(i, i + DELETE_BATCH)))
     }
-    for (const fo of [...allFolders].reverse()) {
-      await db.delete(folders).where(eq(folders.id, fo.id))
+    const folderIds = allFolders.map((fo: any) => fo.id)
+    for (let i = 0; i < folderIds.length; i += DELETE_BATCH) {
+      await db.delete(folders).where(inArray(folders.id, folderIds.slice(i, i + DELETE_BATCH)))
     }
   }
 
