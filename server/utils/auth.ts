@@ -8,7 +8,14 @@ import { sendOTPEmail } from './email'
 import { getSystemSetting } from './system-settings'
 
 export const auth = betterAuth({
-  baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3366',
+  // 动态 baseURL：按每个请求的 Host 自动解析（含 x-forwarded-host/x-forwarded-proto），
+  // 开发（localhost:3366）与正式（r2drive.orange-trees.com）都自动适配，无需写死 BETTER_AUTH_URL。
+  // protocol: 'auto' → 正式走 Cloudflare 的 x-forwarded-proto=https，本地自动回退 http
+  baseURL: {
+    protocol: 'auto',
+    allowedHosts: ['localhost:3366', 'r2drive.orange-trees.com'],
+    fallback: 'http://localhost:3366'
+  },
 
   database: drizzleAdapter(db, {
     provider: 'sqlite',
