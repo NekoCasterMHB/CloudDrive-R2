@@ -17,6 +17,11 @@ export default defineEventHandler(async (event) => {
   const { filename, size, contentType, folderId } = await readBody(event)
   if (!filename || !size) throw createError({ statusCode: 400, message: '缺少参数' })
 
+  // 优先按扩展名推断 contentType（浏览器 File.type 可能误报为 application/zip 等），
+  // 扩展名无法识别时才回退到传入的非通用类型
+  const { inferContentType } = await import('../../utils/content-type')
+  const realType = inferContentType(filename, (contentType && contentType !== 'application/octet-stream') ? contentType : 'application/octet-stream')
+
   // TODO: real userId from session
   const userId = await requireUserId(event)
 
@@ -53,7 +58,7 @@ export default defineEventHandler(async (event) => {
   const objectKey = `${userId}/${fileId}/${filename}`
 
   // 创建 R2 Multipart Upload
-  const uploadId = await r2CreateMultipartUpload(objectKey, contentType || 'application/octet-stream')
+  const uploadId = await r2CreateMultipartUpload(objectKey, realType || 'application/octet-stream')
 
   // 存入 D1
   const sessionId = crypto.randomUUID()
@@ -65,7 +70,7 @@ export default defineEventHandler(async (event) => {
     objectKey,
     filename,
     fileSize: size,
-    contentType: contentType || 'application/octet-stream',
+    contentType: realType || 'application/octet-stream',
     status: 'pending',
     createdAt: new Date()
   }).run()

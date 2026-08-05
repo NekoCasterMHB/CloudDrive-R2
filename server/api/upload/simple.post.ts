@@ -2,6 +2,7 @@
 // 避免小文件也走 init → 传分片 → part-complete → complete 合并的多轮往返开销
 import { r2Put } from '../../utils/r2'
 import { getStorageQuota } from '../../utils/quota'
+import { inferContentType } from '../../utils/content-type'
 
 export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
@@ -16,7 +17,10 @@ export default defineEventHandler(async (event) => {
   const folderId = folderIdRaw ? Buffer.from(folderIdRaw).toString('utf8') : null
   const filename = filePart.filename
   const size = filePart.data.length
-  const contentType = filePart.type || 'application/octet-stream'
+  // 优先按扩展名推断 contentType（浏览器 File.type 可能误报为 application/zip 等），
+  // 扩展名无法识别时才回退到传入的非通用类型
+  const rawType = filePart.type && filePart.type !== 'application/octet-stream' ? filePart.type : ''
+  const contentType = inferContentType(filename, rawType || 'application/octet-stream')
 
   // 存储配额拦截（与 Multipart init 一致：含回收站未清除部分 + 进行中会话）
   const { used, limit } = await getStorageQuota(userId)

@@ -119,6 +119,26 @@ export function shouldCacheContentType(contentType: string, cache?: CacheSetting
   })
 }
 
+const EXT_MEDIA: Record<string, string> = {
+  jpg: 'image', jpeg: 'image', png: 'image', gif: 'image', webp: 'image', svg: 'image', bmp: 'image', ico: 'image', avif: 'image', heic: 'image', heif: 'image', tiff: 'image', tif: 'image',
+  mp4: 'video', mov: 'video', avi: 'video', mkv: 'video', webm: 'video',
+  mp3: 'audio', wav: 'audio', flac: 'audio', aac: 'audio', ogg: 'audio', m4a: 'audio'
+}
+
+/** 按文件名扩展名推断媒体大类并判断是否可缓存（contentType 缺失/为 octet-stream 时兜底） */
+export function shouldCacheByExt(name: string, cache?: CacheSettings): boolean {
+  const s = cache || {
+    enabled: appSettings.value.cacheEnabled,
+    maxSize: appSettings.value.cacheMaxSize,
+    types: appSettings.value.cacheTypes
+  }
+  if (!s.enabled) return false
+  const ext = (name || '').split('.').pop()?.toLowerCase() || ''
+  const media = EXT_MEDIA[ext]
+  if (!media) return false
+  return s.types.some(t => t.toLowerCase().trim() === media)
+}
+
 // ---------- IndexedDB 基础操作（全部容错：永不 reject，失败时作废连接并返回安全默认值） ----------
 function idbPut(entry: CacheEntry): Promise<void> {
   return openDB().then(db => new Promise<void>((resolve, reject) => {
@@ -302,7 +322,8 @@ export function useFileCache() {
   /** 写入缓存；不符合类型或超过容量则跳过。返回是否写入成功 */
   async function cacheFile(input: { id: string, name: string, contentType: string, blob: Blob }): Promise<boolean> {
     try {
-      if (!shouldCacheContentType(input.contentType, settings.value)) return false
+      // contentType 与扩展名任一匹配即缓存（jpg 等即使 contentType 被记为 octet-stream 也能缓存）
+      if (!shouldCacheContentType(input.contentType, settings.value) && !shouldCacheByExt(input.name, settings.value)) return false
       if (input.blob.size <= 0) return false
       // maxSize=0 表示无限制，不检查容量
       if (settings.value.maxSize > 0 && input.blob.size > settings.value.maxSize) return false
