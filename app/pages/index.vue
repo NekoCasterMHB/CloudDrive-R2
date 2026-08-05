@@ -764,6 +764,10 @@
                     class="absolute inset-0 bg-yellow-50 dark:bg-yellow-950 rounded-lg transition-all duration-300"
                     :style="{ width: `${item.progress}%` }"
                   />
+                  <div
+                    v-if="item.status === 'error'"
+                    class="absolute inset-0 bg-red-50 dark:bg-red-950 rounded-lg"
+                  />
                   <UIcon
                     :name="fileIcon((item as any).file.name)"
                     class="text-lg shrink-0 text-gray-500 relative"
@@ -775,7 +779,17 @@
                     <p class="text-xs text-gray-400 flex items-center gap-1.5 flex-wrap">
                       {{ formatSizePair((item as any).file.size * item.progress / 100, (item as any).file.size) }}
                       <span
-                        v-if="item.status === 'uploading' && item.speed"
+                        v-if="item.status === 'uploading' && item.completing"
+                        class="inline-flex items-center gap-0.5 text-gray-500 tabular-nums"
+                      >
+                        <UIcon
+                          name="i-lucide-loader-circle"
+                          class="size-3 animate-spin"
+                        />
+                        <span>{{ $t('app.finalizing') }}</span>
+                      </span>
+                      <span
+                        v-else-if="item.status === 'uploading' && item.speed"
                         class="inline-flex items-center gap-0.5 text-green-600 dark:text-green-400 tabular-nums"
                       >
                         <UIcon
@@ -794,11 +808,24 @@
                     v-if="item.status === 'paused'"
                     class="text-xs text-yellow-500 relative"
                   >{{ $t('app.paused') }}</span>
+                  <span
+                    v-if="item.status === 'error'"
+                    class="text-xs text-red-500 relative"
+                  >{{ $t('app.failed') }}</span>
                   <div
                     v-show="!isMultiSelect"
                     class="relative flex items-center gap-0.5 opacity-0 sm:opacity-0 group-hover:opacity-100 transition-opacity"
                     :class="activeItems.has(item.id) ? 'opacity-100!' : ''"
                   >
+                    <UButton
+                      v-if="item.status === 'error'"
+                      icon="i-lucide-rotate-ccw"
+                      variant="ghost"
+                      size="xs"
+                      class="text-gray-400 hover:text-blue-500"
+                      :title="$t('app.retry')"
+                      @click.stop="retryTask(item.id)"
+                    />
                     <UButton
                       v-if="item.status === 'uploading'"
                       icon="i-lucide-pause"
@@ -1039,7 +1066,7 @@ const folderNameError = computed(() => {
 const canCreate = computed(() => folderName.value.trim() && !folderNameError.value)
 
 // Upload
-const { tasks, history, addFiles, clearHistory, removeHistory, togglePause, cancelTask, saveHistory } = useUploader((record) => {
+const { tasks, history, addFiles, clearHistory, removeHistory, togglePause, cancelTask, retryTask, saveHistory } = useUploader((record) => {
   if (record?.id) syncItem(record)
   loadCurrent()
 }, (msg) => {
@@ -1553,7 +1580,6 @@ function pushDownloadHistory(task: ZipTask, status: 'done' | 'error', error?: st
     error,
     time: Date.now()
   })
-  if (history.value.length > 100) history.value.pop()
   saveHistory()
 }
 
@@ -2311,7 +2337,6 @@ function deleteSelected() {
         const t = tasks.value[idx]!
         tasks.value.splice(idx, 1)
         history.value.unshift({ id: t.id, fileName: t.file.name, fileSize: t.file.size, folderId: t.folderId, type: t.type, status: 'cancelled', time: Date.now() })
-        if (history.value.length > 100) history.value.pop()
       }
     }
     if (hist) {
@@ -2344,13 +2369,13 @@ const totalDownloadSpeed = computed(() =>
     .reduce((s, t) => s + (t.speed || 0), 0)
 )
 const historyCount = computed(() => history.value.length)
-// 进行中任务的状态优先级：上传中 > 已暂停 > 排队等待
-const transferStatusRank: Record<string, number> = { uploading: 0, paused: 1, pending: 2 }
+// 进行中任务的状态优先级：上传中 > 已暂停 > 排队等待 > 失败
+const transferStatusRank: Record<string, number> = { uploading: 0, paused: 1, pending: 2, error: 3 }
 const latestHistory = computed(() => {
   // 进行中的 zip 打包 + 上传任务置顶，其次是待保存/失败的 zip，最后是最新完成的记录，共显示 6 条
   const zipRun = zipTasks.value.filter(t => t.status === 'running')
   const active = tasks.value
-    .filter(t => t.status === 'pending' || t.status === 'uploading' || t.status === 'paused')
+    .filter(t => t.status === 'pending' || t.status === 'uploading' || t.status === 'paused' || t.status === 'error')
     .sort((a, b) => (transferStatusRank[a.status] ?? 9) - (transferStatusRank[b.status] ?? 9))
   const zipReady = zipTasks.value.filter(t => t.status === 'ready' || t.status === 'error')
   const done = history.value.slice().sort((a, b) => (b.time || 0) - (a.time || 0))
@@ -2368,7 +2393,7 @@ const filteredTransferHistory = computed(() => {
       .filter(t => t.status === 'running' || t.status === 'ready' || t.status === 'error')
       .filter(t => filter === 'all' || filter === 'download')
     const up = tasks.value
-      .filter(t => t.status === 'pending' || t.status === 'uploading' || t.status === 'paused')
+      .filter(t => t.status === 'pending' || t.status === 'uploading' || t.status === 'paused' || t.status === 'error')
       .filter(t => filter === 'all' || t.type === filter)
       .sort((a, b) => (transferStatusRank[a.status] ?? 9) - (transferStatusRank[b.status] ?? 9))
     return [...zipActive, ...up]
