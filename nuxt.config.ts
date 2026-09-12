@@ -121,7 +121,10 @@ export default defineNuxtConfig({
     },
     workbox: {
       globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
-      navigateFallback: '/index.html'
+      // 离线回退页必须指向「预缓存清单中存在的 URL」。
+      // ssr:false 构建产物中入口 HTML 以 `/`（目录索引）身份进清单，而非 `/index.html`，
+      // 写成 /index.html 会导致 sw.js 执行时抛 non-precached-url、Service Worker 永远无法更新
+      navigateFallback: '/'
     },
     client: {
       installPrompt: true,

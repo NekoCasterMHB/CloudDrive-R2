@@ -73,7 +73,8 @@ export function useUploader(
   onQuotaExceeded?: (name: string) => void
 ) {
   const { t } = useI18n()
-  const { appSettings } = useSettings()
+  // useSettings 返回的字段名是 settings，解构时重命名为 appSettings
+  const { settings: appSettings } = useSettings()
   const tasks = ref<UploadTask[]>([])
   const history = ref<StoredTask[]>([])
   // 异步从 IndexedDB 加载历史（无条数限制）
