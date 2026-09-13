@@ -81,7 +81,7 @@
                   <div
                     v-else
                     class="group flex items-center gap-2 px-2 py-1.5 text-sm relative overflow-hidden rounded cursor-pointer hover:ring-1 hover:ring-blue-400 dark:hover:ring-blue-500"
-                    :class="item.status === 'done' ? 'bg-green-50 dark:bg-green-950' : ''"
+                    :class="item.status === 'done' ? 'bg-green-50 dark:bg-green-950' : (item.status === 'error' ? 'bg-red-50 dark:bg-red-950' : '')"
                     @click="openTransferFor(item)"
                   >
                     <div
@@ -95,9 +95,20 @@
                     />
                     <UIcon
                       :name="item.status === 'done' ? fileIcon((item as any).fileName) : fileIcon((item as any).file?.name || '')"
-                      class="text-sm shrink-0 text-gray-400 relative"
+                      class="text-sm shrink-0 relative"
+                      :class="item.status === 'error' ? 'text-red-400' : 'text-gray-400'"
                     />
-                    <span class="truncate flex-1 relative">{{ 'file' in item ? (item as any).file.name : (item as any).fileName }}</span>
+                    <div class="flex-1 min-w-0 relative">
+                      <p class="truncate">
+                        {{ 'file' in item ? (item as any).file.name : (item as any).fileName }}
+                      </p>
+                      <p
+                        v-if="item.status === 'error'"
+                        class="text-[0.65rem] text-red-400 truncate"
+                      >
+                        {{ (item as any).error || $t('app.failed') }}
+                      </p>
+                    </div>
                     <span
                       v-if="item.status === 'uploading'"
                       class="text-xs text-blue-500 relative"
@@ -107,13 +118,22 @@
                       class="text-xs text-yellow-500 relative"
                     >{{ $t('app.paused') }}</span>
                     <span
-                      v-else
+                      v-else-if="item.status !== 'error'"
                       class="text-xs text-gray-400 shrink-0 relative"
                     >{{ formatSize((item as any).fileSize || (item as any).file?.size) }}</span>
                     <span
                       v-if="'file' in item"
                       class="relative opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity"
                     >
+                      <UButton
+                        v-if="item.status === 'error'"
+                        icon="i-lucide-rotate-ccw"
+                        variant="ghost"
+                        size="xs"
+                        class="text-gray-400 hover:text-blue-500"
+                        :title="$t('app.retry')"
+                        @click.stop="retryTask(item.id)"
+                      />
                       <UButton
                         v-if="item.status === 'uploading'"
                         icon="i-lucide-pause"

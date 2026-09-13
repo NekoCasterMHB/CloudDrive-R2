@@ -120,7 +120,8 @@ export function useUploader(
           if (Array.isArray(legacy)) {
             localStorage.removeItem('upload_history')
             try { await historyIdbSet(legacy) } catch { /* 忽略 */ }
-            return legacy
+            // 与 IndexedDB 分支一致：失败记录不进入「已完成」历史
+            return legacy.filter(d => d.status !== 'error')
           }
         }
       }
@@ -129,7 +130,10 @@ export function useUploader(
     }
     try {
       const data = await historyIdbGet()
-      if (Array.isArray(data)) return data
+      if (Array.isArray(data)) {
+        // 「已完成」历史只保留成功/取消记录，旧版本持久化的失败记录一并过滤
+        return data.filter(d => d.status !== 'error')
+      }
     } catch {
       // 读取失败时忽略
     }
@@ -139,7 +143,9 @@ export function useUploader(
   /** 持久化历史到 IndexedDB（无条数限制） */
   async function saveHistory() {
     try {
-      await historyIdbSet(history.value)
+      // history.value 是 Vue 响应式代理（filter/map 后元素也可能是代理），
+      // Proxy 无法结构化克隆，直接 put 会抛 DataCloneError —— 必须先转纯对象
+      await historyIdbSet(JSON.parse(JSON.stringify(history.value)))
     } catch {
       // 写入失败时忽略
     }
@@ -412,17 +418,7 @@ export function useUploader(
       }
       task.status = 'error'
       task.error = errMsg
-      history.value.unshift({
-        id: task.id,
-        fileName: task.file.name,
-        fileSize: task.file.size,
-        folderId: task.folderId,
-        type: task.type,
-        status: 'error',
-        error: errMsg,
-        time: Date.now()
-      })
-      saveHistory()
+      // 失败任务保留在传输列表（红色标识 + 可重试），不写入「已完成」历史
       onNotify?.({
         title: serverMsg || t('app.uploadFailed', { name: task.file.name }),
         color: 'error',
@@ -480,9 +476,6 @@ export function useUploader(
   function retryTask(id: string) {
     const task = tasks.value.find(t => t.id === id)
     if (!task || task.status !== 'error') return
-    // 移除历史里对应的失败记录，避免重试成功后再出现一条
-    history.value = history.value.filter(h => h.id !== id)
-    saveHistory()
     task.status = 'pending'
     task.progress = 0
     task.uploadedBytes = 0
