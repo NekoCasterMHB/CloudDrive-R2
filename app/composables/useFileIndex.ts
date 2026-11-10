@@ -255,6 +255,31 @@ export function useFileIndex() {
     return upsertItem(raw)
   }
 
+  /**
+   * 当前路径同步：只拉取该路径的服务端数据，替换本地索引中该路径的条目。
+   * 与 fullSync 不同：请求量小（只含当前路径），且不清空整个索引；
+   * 该路径下已不在服务端的本地残留（如其他端删除的文件）会被清除。
+   */
+  async function syncFolder(parentId: string | null) {
+    const res = await $fetch<any>('/api/folders', { query: parentId ? { parentId } : {} })
+    if (!Array.isArray(res?.folders) || !Array.isArray(res?.files)) {
+      throw new Error('同步接口返回格式异常')
+    }
+    const fresh = [...res.folders.map(toIndexItem), ...res.files.map(toIndexItem)]
+    const freshIds = new Set(fresh.map(i => i.id))
+    const pid = parentId || null
+    // 丢弃该路径下已不在服务端的本地残留，其他路径的索引保持不动
+    items.value = items.value.filter(i => (i.parentId || null) !== pid || freshIds.has(i.id))
+    // 合并服务端最新数据（一次性 buildMaps + persist，避免逐条重复持久化）
+    for (const item of fresh) {
+      const idx = items.value.findIndex(i => i.id === item.id)
+      if (idx >= 0) items.value[idx] = item
+      else items.value.push(item)
+    }
+    buildMaps()
+    await persist()
+  }
+
   function getChildren(parentId: string | null): IndexItem[] {
     return childrenMap.value[parentId || 'root'] || []
   }
@@ -325,5 +350,5 @@ export function useFileIndex() {
     await persist()
   }
 
-  return { items, ready, loading, lastSyncAt, loadAll, fullSync, syncItem, getChildren, getItem, upsertItem, addItem, removeItem, removeItemsDeep, clearIndexCache }
+  return { items, ready, loading, lastSyncAt, loadAll, fullSync, syncFolder, syncItem, getChildren, getItem, upsertItem, addItem, removeItem, removeItemsDeep, clearIndexCache }
 }

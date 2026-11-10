@@ -178,6 +178,16 @@
 
     <!-- Breadcrumb + Toolbar -->
     <nav class="sticky top-14 z-9 bg-white/80 dark:bg-gray-950/80 backdrop-blur border-b border-gray-200 dark:border-gray-800 px-4 py-1.5 flex items-center gap-2">
+      <UButton
+        icon="i-lucide-refresh-cw"
+        variant="ghost"
+        size="sm"
+        class="shrink-0"
+        :loading="syncingIndex"
+        :title="$t('app.syncCurrentIndex')"
+        :aria-label="$t('app.syncCurrentIndex')"
+        @click="syncCurrentIndex"
+      />
       <div class="flex items-center gap-1 text-sm text-gray-500 overflow-x-auto flex-1 min-w-0">
         <template
           v-for="(crumb, i) in breadcrumbs"
@@ -1005,7 +1015,7 @@ const { t } = useI18n()
 const toast = useToast()
 const { loadPreview, removeThumbnail } = useFileCache()
 
-const { loading, loadAll, fullSync, syncItem, getChildren, getItem, addItem, removeItem, removeItemsDeep, items } = useFileIndex()
+const { loading, loadAll, fullSync, syncFolder, syncItem, getChildren, getItem, addItem, removeItem, removeItemsDeep, items } = useFileIndex()
 
 // 当前目录显示列表：独立于索引 items，避免覆盖导致索引持久化损坏
 const currentItems = ref<any[]>([])
@@ -2960,6 +2970,22 @@ function applySort(list: any[]): any[] {
 
 async function loadCurrent() {
   currentItems.value = applySort(getChildren(currentFolderId.value))
+}
+
+// 路径栏刷新按钮：只同步当前路径的索引（参考设置页的同步全部索引）
+const syncingIndex = ref(false)
+async function syncCurrentIndex() {
+  if (syncingIndex.value) return
+  syncingIndex.value = true
+  try {
+    await syncFolder(currentFolderId.value)
+    await loadCurrent()
+    toast.add({ title: t('app.indexSynced'), icon: 'i-lucide-circle-check', duration: 2500 })
+  } catch {
+    toast.add({ title: t('app.failed'), color: 'error', icon: 'i-lucide-circle-x', duration: 2500 })
+  } finally {
+    syncingIndex.value = false
+  }
 }
 
 function onItemClick(item: any) {

@@ -289,6 +289,7 @@
     "fileIndex": "文件索引",
     "fileIndexHint": "本地索引用于文件夹切换时的快速加载，每日首次访问自动全量同步。",
     "syncFileIndex": "同步文件索引",
+    "syncCurrentIndex": "同步当前路径索引",
     "indexSynced": "索引已同步",
     "lastSync": "上次同步",
     "neverSynced": "从未同步",

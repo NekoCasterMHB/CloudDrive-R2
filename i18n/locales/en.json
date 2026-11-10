@@ -287,6 +287,7 @@
     "fileIndex": "File Index",
     "fileIndexHint": "Local index enables fast folder navigation. A full sync runs automatically on first visit each day.",
     "syncFileIndex": "Sync file index",
+    "syncCurrentIndex": "Sync current folder index",
     "indexSynced": "Index synced",
     "lastSync": "Last synced",
     "neverSynced": "Never synced",

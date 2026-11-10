@@ -16,6 +16,8 @@ function calcPartSize(fileSize: number): number {
 export default defineEventHandler(async (event) => {
   const { filename, size, contentType, folderId } = await readBody(event)
   if (!filename || !size) throw createError({ statusCode: 400, message: '缺少参数' })
+  // 空串归一为 null：根目录统一用 NULL 表示，避免与 isNull 查询语义不一致
+  const normalizedFolderId = folderId || null
 
   // 优先按扩展名推断 contentType（浏览器 File.type 可能误报为 application/zip 等），
   // 扩展名无法识别时才回退到传入的非通用类型
@@ -65,7 +67,7 @@ export default defineEventHandler(async (event) => {
   await db.insert(uploadSessions).values({
     id: sessionId,
     userId,
-    folderId: folderId ?? null,
+    folderId: normalizedFolderId,
     uploadId,
     objectKey,
     filename,
@@ -82,6 +84,6 @@ export default defineEventHandler(async (event) => {
     partSize,
     filename,
     size,
-    folderId: folderId ?? null
+    folderId: normalizedFolderId
   }
 })

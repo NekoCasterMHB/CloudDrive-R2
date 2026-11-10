@@ -285,6 +285,7 @@
     "fileIndex": "ファイルインデックス",
     "fileIndexHint": "ローカルインデックスはフォルダ切替を高速化します。毎日の初回アクセス時に全量同期が自動実行されます。",
     "syncFileIndex": "ファイルインデックスを同期",
+    "syncCurrentIndex": "現在のパスのインデックスを同期",
     "indexSynced": "インデックスを同期しました",
     "lastSync": "最終同期",
     "neverSynced": "未同期",

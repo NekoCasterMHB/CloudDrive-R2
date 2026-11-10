@@ -14,7 +14,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: '缺少文件' })
   }
   const folderIdRaw = form?.find(p => p.name === 'folderId')?.data
-  const folderId = folderIdRaw ? Buffer.from(folderIdRaw).toString('utf8') : null
+  // 空串归一为 null：根目录统一用 NULL 表示，避免与 isNull 查询语义不一致
+  const folderId = folderIdRaw ? (Buffer.from(folderIdRaw).toString('utf8') || null) : null
   const filename = filePart.filename
   const size = filePart.data.length
   // 优先按扩展名推断 contentType（浏览器 File.type 可能误报为 application/zip 等），
