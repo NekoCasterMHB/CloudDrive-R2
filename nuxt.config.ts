@@ -113,6 +113,19 @@ export default defineNuxtConfig({
       orientation: 'any',
       start_url: '/',
       scope: '/',
+      // Web Share Target:Android 安装 PWA 后,相册/文件管理器「分享」面板会出现本应用,
+      // 分享的文件 POST 到 /share-target（由 sw-custom.js 拦截暂存，进应用后并入上传队列）
+      share_target: {
+        action: '/share-target',
+        method: 'POST',
+        enctype: 'multipart/form-data',
+        params: {
+          title: 'title',
+          text: 'text',
+          url: 'url',
+          files: [{ name: 'files', accept: ['*/*'] }]
+        } as any
+      },
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
         { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -124,7 +137,9 @@ export default defineNuxtConfig({
       // 离线回退页必须指向「预缓存清单中存在的 URL」。
       // ssr:false 构建产物中入口 HTML 以 `/`（目录索引）身份进清单，而非 `/index.html`，
       // 写成 /index.html 会导致 sw.js 执行时抛 non-precached-url、Service Worker 永远无法更新
-      navigateFallback: '/'
+      navigateFallback: '/',
+      // Web Share Target 拦截脚本（public/sw-custom.js），在 workbox 路由之前注册 fetch 监听
+      importScripts: ['/sw-custom.js']
     },
     client: {
       installPrompt: true,

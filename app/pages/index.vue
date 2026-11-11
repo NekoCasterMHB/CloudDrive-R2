@@ -2921,7 +2921,50 @@ function toItem(raw: any) {
   }
 }
 
-onMounted(() => loadAll().finally(loadCurrent))
+onMounted(() => {
+  loadAll().finally(loadCurrent)
+  consumeSharedFiles()
+})
+
+/**
+ * Web Share Target：Android 安装 PWA 后从系统分享面板分享进来的文件。
+ * sw-custom.js 已把文件暂存 IndexedDB 并重定向到 /?share-target=1，
+ * 这里向 SW 请求暂存文件（一次性取走），并入当前目录的上传队列。
+ */
+async function consumeSharedFiles() {
+  const sw = navigator.serviceWorker
+  if (!sw?.controller) return
+  // 无论是否取到文件都先清掉 URL 参数，避免刷新后重复处理
+  if (window.location.search.includes('share-target')) {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('share-target')
+    url.searchParams.delete('shared-text')
+    window.history.replaceState(null, '', url.pathname + url.search)
+  }
+  try {
+    const files = await new Promise<File[]>((resolve) => {
+      const timer = setTimeout(() => {
+        sw.removeEventListener('message', onMsg)
+        resolve([])
+      }, 3000)
+      const onMsg = (event: MessageEvent) => {
+        if (event.data?.action !== 'shared-files') return
+        clearTimeout(timer)
+        sw.removeEventListener('message', onMsg)
+        resolve((event.data.files || []) as File[])
+      }
+      sw.addEventListener('message', onMsg)
+      sw.controller.postMessage({ action: 'get-shared-files' })
+    })
+    if (!files.length) return
+    // 上传前配额预检：超限弹「存储空间不足」模态框
+    if (!(await checkUploadQuota(files))) return
+    addFiles(files, currentFolderId.value)
+    showTransferPopover.value = true
+  } catch {
+    // 拉取失败时静默忽略（文件仍留在 SW 暂存里，下次进应用可再取）
+  }
+}
 
 // 索引数据变化（用户切换/登录后同步完成）时刷新当前目录
 watch(items, () => loadCurrent())
